@@ -1,0 +1,30 @@
+{
+  "name": "@masaar/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.888.0",
+    "@fastify/aws-lambda": "^6.1.1",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/sensible": "^6.0.4",
+    "@masaar/contracts": "workspace:*",
+    "aws-jwt-verify": "^5.1.1",
+    "fastify": "^5.8.2",
+    "mssql": "^12.7.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.21.0"
+  }
+}

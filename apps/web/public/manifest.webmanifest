@@ -1,0 +1,34 @@
+{
+  "name": "Masaar Business Command Center",
+  "short_name": "Masaar",
+  "description": "Operations, cash accountability and business intelligence for Lebanese social-commerce businesses.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f7f9",
+  "theme_color": "#001525",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "/brand/masaar-logo-dark.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/masaar-logo-dark.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Masaar",
+      "short_name": "Dashboard",
+      "url": "/",
+      "icons": [{ "src": "/brand/masaar-logo-dark.png", "sizes": "any" }]
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+name: Masaar feature story
+description: Implement a reviewed Masaar user story within the active phase.
+title: '[Phase X][Epic X] '
+labels: ['story']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem and outcome
+      description: Identify the user, Lebanese operating problem, and measurable result.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope / out of scope
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Include normal, empty, error, permission, slow-network, and offline behavior where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: contracts
+    attributes:
+      label: API, data, event, permission, audit, and metric impact
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Figma and Tailwind component impact
+  - type: textarea
+    id: tests
+    attributes:
+      label: Test and exit evidence
+    validations:
+      required: true

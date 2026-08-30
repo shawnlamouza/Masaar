@@ -1,0 +1,55 @@
+name: Deploy Masaar staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: masaar-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: aws-actions/setup-sam@v2
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
+      - run: sam build --template-file infra/template.yaml
+      - name: Deploy reviewed infrastructure and API
+        run: >-
+          sam deploy
+          --stack-name masaar-staging
+          --resolve-s3
+          --capabilities CAPABILITY_IAM
+          --no-fail-on-empty-changeset
+          --parameter-overrides
+          Environment=staging
+          WebOrigin=${{ vars.WEB_ORIGIN }}
+          BudgetEmail=${{ vars.BUDGET_EMAIL }}
+          MonthlyBudgetUsd=${{ vars.MONTHLY_BUDGET_USD }}
+          SqlServerConnectionString=${{ secrets.SQLSERVER_CONNECTION_STRING }}
+      - name: Publish web application
+        shell: bash
+        run: |
+          WEB_BUCKET=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" --output text)
+          DISTRIBUTION=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebDistributionId'].OutputValue" --output text)
+          aws s3 sync apps/web/dist "s3://${WEB_BUCKET}" --delete
+          aws cloudfront create-invalidation --distribution-id "${DISTRIBUTION}" --paths "/*"

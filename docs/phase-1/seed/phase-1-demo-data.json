@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "generatedFor": "Masaar Phase 1 contract and demo design",
+  "fictionalData": true,
+  "tenant": {
+    "id": "tenant_cedar_thread",
+    "name": "Cedar & Thread",
+    "timezone": "Asia/Beirut",
+    "baseReportingCurrencies": ["USD", "LBP"],
+    "stockReservationMilestone": "CONFIRMED",
+    "saleFinalizationMilestone": "DELIVERED"
+  },
+  "users": [
+    { "id": "usr_owner", "name": "Maya", "role": "OWNER" },
+    { "id": "usr_employee", "name": "Rami", "role": "EMPLOYEE" },
+    { "id": "usr_driver", "name": "Karim", "role": "DRIVER" }
+  ],
+  "suppliers": [
+    {
+      "id": "sup_textile",
+      "name": "Demo Textile Supplier",
+      "costCurrency": "USD",
+      "leadTimeDaysBefore": 5,
+      "leadTimeDaysCurrent": 10
+    }
+  ],
+  "products": [
+    {
+      "id": "prd_linen_shirt",
+      "name": "Linen Shirt",
+      "supplierId": "sup_textile",
+      "variants": [
+        {
+          "id": "var_linen_teal_m",
+          "sku": "LS-TEAL-M",
+          "attributes": { "color": "Teal", "size": "M" },
+          "sellingPrice": { "amount": 38, "currency": "USD" },
+          "previousUnitCost": { "amount": 18, "currency": "USD" },
+          "currentUnitCost": { "amount": 23, "currency": "USD" },
+          "onHand": 9,
+          "reserved": 2,
+          "averageDailySales30d": 1.0,
+          "safetyStock": 3
+        },
+        {
+          "id": "var_linen_teal_l",
+          "sku": "LS-TEAL-L",
+          "attributes": { "color": "Teal", "size": "L" },
+          "sellingPrice": { "amount": 38, "currency": "USD" },
+          "previousUnitCost": { "amount": 18, "currency": "USD" },
+          "currentUnitCost": { "amount": 23, "currency": "USD" },
+          "onHand": 3,
+          "reserved": 1,
+          "averageDailySales30d": 0.6,
+          "safetyStock": 2
+        }
+      ]
+    },
+    {
+      "id": "prd_cedar_tote",
+      "name": "Cedar Tote",
+      "supplierId": "sup_textile",
+      "variants": [
+        {
+          "id": "var_tote_natural",
+          "sku": "CT-NAT",
+          "attributes": { "color": "Natural" },
+          "sellingPrice": { "amount": 900000, "currency": "LBP" },
+          "currentUnitCost": { "amount": 520000, "currency": "LBP" },
+          "onHand": 31,
+          "reserved": 0,
+          "averageDailySales30d": 0.07,
+          "daysSinceLastSale": 44
+        }
+      ]
+    },
+    {
+      "id": "prd_demo_scarf",
+      "name": "Demo Scarf",
+      "supplierId": "sup_textile",
+      "variants": [
+        {
+          "id": "var_cedar_demo_missing_cost",
+          "sku": "SC-DEMO",
+          "attributes": { "color": "Gold" },
+          "sellingPrice": { "amount": 25, "currency": "USD" },
+          "currentUnitCost": null,
+          "onHand": 5,
+          "reserved": 0,
+          "averageDailySales30d": 0.2
+        }
+      ]
+    }
+  ],
+  "customers": [
+    {
+      "id": "cus_nour",
+      "displayName": "Nour A.",
+      "phone": "+96170000001",
+      "preferredPaymentMethod": "WHISH",
+      "address": {
+        "area": "Achrafieh",
+        "street": "Demo Street",
+        "building": "Cedar Building",
+        "floor": "3",
+        "landmark": "Near the demo pharmacy",
+        "locationPin": { "latitude": 33.8886, "longitude": 35.5205 }
+      }
+    },
+    {
+      "id": "cus_layla",
+      "displayName": "Layla H.",
+      "phone": "+96170000002",
+      "preferredPaymentMethod": "CASH",
+      "address": { "area": "Metn", "landmark": "Demo landmark" }
+    }
+  ],
+  "orders": [
+    {
+      "id": "ord_1001",
+      "sourceChannel": "INSTAGRAM",
+      "customerId": "cus_nour",
+      "status": "DELIVERED",
+      "lines": [
+        {
+          "variantId": "var_linen_teal_m",
+          "quantity": 1,
+          "sellingPriceSnapshot": { "amount": 38, "currency": "USD" },
+          "costSnapshot": { "amount": 18, "currency": "USD" }
+        }
+      ],
+      "deliveryFee": { "amount": 4, "currency": "USD" },
+      "discount": { "amount": 2, "currency": "USD" },
+      "total": { "amount": 40, "currency": "USD" },
+      "amountExpectedCash": { "amount": 25, "currency": "USD" }
+    },
+    {
+      "id": "ord_1002",
+      "sourceChannel": "WHATSAPP",
+      "customerId": "cus_layla",
+      "status": "DELIVERED",
+      "lines": [
+        {
+          "variantId": "var_linen_teal_l",
+          "quantity": 1,
+          "sellingPriceSnapshot": { "amount": 38, "currency": "USD" },
+          "costSnapshot": { "amount": 23, "currency": "USD" }
+        }
+      ],
+      "deliveryFee": { "amount": 5, "currency": "USD" },
+      "discount": { "amount": 5, "currency": "USD" },
+      "total": { "amount": 38, "currency": "USD" },
+      "amountExpectedCash": { "amount": 38, "currency": "USD" }
+    },
+    {
+      "id": "ord_1003",
+      "sourceChannel": "INSTAGRAM",
+      "customerId": "cus_layla",
+      "status": "DELIVERED",
+      "lines": [
+        {
+          "variantId": "var_cedar_demo_missing_cost",
+          "quantity": 1,
+          "sellingPriceSnapshot": { "amount": 25, "currency": "USD" },
+          "costSnapshot": null
+        }
+      ],
+      "deliveryFee": { "amount": 4, "currency": "USD" },
+      "discount": { "amount": 0, "currency": "USD" },
+      "total": { "amount": 29, "currency": "USD" },
+      "analyticsExpectedBehavior": "Contribution metrics must be marked incomplete, never assume zero cost."
+    }
+  ],
+  "delivery": {
+    "assignmentId": "asg_1001",
+    "driverId": "usr_driver",
+    "orderIds": ["ord_1001", "ord_1002"],
+    "attempts": [
+      { "orderId": "ord_1001", "attempt": 1, "result": "DELIVERED", "capturedOffline": true },
+      { "orderId": "ord_1002", "attempt": 1, "result": "FAILED", "reason": "CUSTOMER_UNAVAILABLE" },
+      { "orderId": "ord_1002", "attempt": 2, "result": "DELIVERED" }
+    ]
+  },
+  "payments": [
+    {
+      "id": "pay_1",
+      "orderId": "ord_1001",
+      "method": "WHISH",
+      "status": "PAID",
+      "amount": 15,
+      "currency": "USD",
+      "reference": "WH-DEMO-01"
+    },
+    {
+      "id": "pay_2",
+      "orderId": "ord_1001",
+      "method": "CASH",
+      "status": "PAID",
+      "amount": 25,
+      "currency": "USD",
+      "collectorId": "usr_driver"
+    },
+    {
+      "id": "pay_3",
+      "orderId": "ord_1002",
+      "method": "CASH",
+      "status": "PAID",
+      "amount": 38,
+      "currency": "USD",
+      "collectorId": "usr_driver"
+    }
+  ],
+  "reconciliation": {
+    "batchId": "rec_demo_01",
+    "collectorId": "usr_driver",
+    "currency": "USD",
+    "expected": 63,
+    "returned": 60,
+    "discrepancy": 3,
+    "status": "DISCREPANCY_REVIEW",
+    "explanation": "Demo shortage awaiting owner review"
+  },
+  "ownerScenarios": [
+    {
+      "id": "scenario_supplier_shock",
+      "inputs": {
+        "unitCostBeforeUsd": 18,
+        "unitCostAfterUsd": 23,
+        "leadTimeBeforeDays": 5,
+        "leadTimeAfterDays": 10
+      },
+      "expectedDecisionCards": [
+        "MARGIN_EROSION",
+        "LOW_STOCK_BEFORE_REPLENISHMENT",
+        "RESTOCK_BUDGET"
+      ]
+    },
+    {
+      "id": "scenario_profit_leak",
+      "expectedExplanationComponents": [
+        "SUPPLIER_COST",
+        "DISCOUNT",
+        "FAILED_DELIVERY_COST",
+        "MISSING_COST_DATA"
+      ]
+    }
+  ]
+}

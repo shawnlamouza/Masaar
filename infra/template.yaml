@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Economical Masaar staging/production foundation on AWS.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [staging, production]
+    Default: staging
+  WebOrigin:
+    Type: String
+  BudgetEmail:
+    Type: String
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 35
+  SqlServerConnectionString:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 512
+    Timeout: 15
+    Tracing: Active
+    Environment:
+      Variables:
+        MAASAR_ENV: !Ref Environment
+        AUTH_MODE: cognito
+        AWS_REGION_NAME: !Ref AWS::Region
+        WEB_ORIGIN: !Ref WebOrigin
+        COGNITO_USER_POOL_ID: !Ref UserPool
+        COGNITO_CLIENT_ID: !Ref UserPoolClient
+        SQLSERVER_CONNECTION_STRING: !Sub '{{resolve:secretsmanager:${ApplicationSecret}:SecretString:sqlServerConnectionString}}'
+
+Resources:
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  WebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub masaar-${Environment}-web
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        HttpVersion: http2and3
+        Origins:
+          - Id: web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !Ref WebOriginAccessControl
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${WebBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}
+
+  MasaarApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub masaar-${Environment}-api
+      StageName: !Ref Environment
+      TracingEnabled: true
+      Cors:
+        AllowOrigin: !Sub "'${WebOrigin}'"
+        AllowHeaders: "'Authorization,Content-Type,X-Correlation-Id,X-Tenant-Id'"
+        AllowMethods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/lambda.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+    Properties:
+      CodeUri: ../apps/api
+      Handler: src/lambda.handler
+      ReservedConcurrentExecutions: 10
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXRayDaemonWriteAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminCreateUser
+                - cognito-idp:AdminSetUserPassword
+                - cognito-idp:ListUsers
+              Resource: !GetAtt UserPool.Arn
+        - S3WritePolicy:
+            BucketName: !Ref EvidenceBucket
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt DomainEventQueue.QueueName
+      Events:
+        Proxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MasaarApi
+            Path: /{proxy+}
+            Method: ANY
+        Root:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MasaarApi
+            Path: /
+            Method: ANY
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub masaar-${Environment}
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Schema:
+        - Name: tenantId
+          AttributeDataType: String
+          Mutable: false
+          Required: false
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub masaar-${Environment}-web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 30
+      IdTokenValidity: 30
+      RefreshTokenValidity: 7
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  ApplicationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub masaar/${Environment}/application
+      SecretString: !Sub '{"sqlServerConnectionString":"${SqlServerConnectionString}"}'
+
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-demo-objects
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+  DomainEventDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub masaar-${Environment}-events-dlq
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
+  DomainEventQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub masaar-${Environment}-events
+      KmsMasterKeyId: alias/aws/sqs
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DomainEventDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  ApiWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub masaar-${Environment}-api
+      Scope: REGIONAL
+      DefaultAction: { Allow: {} }
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub masaar-${Environment}-waf
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: AWSManagedCommonRules
+          Priority: 0
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: common-rules
+            SampledRequestsEnabled: true
+        - Name: RateLimit
+          Priority: 1
+          Action: { Block: {} }
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 1000
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: rate-limit
+            SampledRequestsEnabled: true
+
+  ApiWebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    DependsOn: MasaarApiStage
+    Properties:
+      ResourceArn: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/${MasaarApi}/stages/${Environment}
+      WebACLArn: !GetAtt ApiWebAcl.Arn
+
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Masaar API Lambda errors detected.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub masaar-${Environment}-monthly
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+        BudgetType: COST
+        TimeUnit: MONTHLY
+      NotificationsWithSubscribers:
+        - Notification:
+            ComparisonOperator: GREATER_THAN
+            NotificationType: FORECASTED
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - Address: !Ref BudgetEmail
+              SubscriptionType: EMAIL
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${MasaarApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+  CognitoUserPoolId:
+    Value: !Ref UserPool
+  CognitoClientId:
+    Value: !Ref UserPoolClient
+  EvidenceBucketName:
+    Value: !Ref EvidenceBucket
+  WebBucketName:
+    Value: !Ref WebBucket
+  WebDistributionId:
+    Value: !Ref WebDistribution
+  WebUrl:
+    Value: !Sub https://${WebDistribution.DomainName}
