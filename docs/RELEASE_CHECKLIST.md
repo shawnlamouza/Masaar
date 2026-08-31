@@ -7,9 +7,10 @@
 - [x] Order, confirmation, delivery, payment, cash custody, stock, returns and intelligence workflows.
 - [x] Microsoft SQL Server repositories, idempotent schema and SSMS operational views.
 - [x] Automated tests, type checks, lint, production build and responsive role workflow review.
-- [x] Functional specification, implementation plan, final submission PDF and two-minute demo script.
+- [x] Functional specification, implementation plan, rebuilt final submission Word/PDF, architecture diagram and 1:50 demo video.
 - [ ] Add every team member name and contribution to `output/pdf/Masaar_Final_Submission.pdf`.
-- [ ] Add the public GitHub, deployed application and demo video URLs.
+- [ ] Replace the four honest team-name placeholders with the real names.
+- [ ] Add the public GitHub, deployed application and uploaded demo video URLs.
 
 ## SQL Server and SSMS gate
 
@@ -28,7 +29,9 @@ The current Windows SQL Server service advertises encryption but rejects command
 - [ ] Provision a private Amazon RDS for SQL Server instance and security groups.
 - [ ] Store the SQL connection string in Secrets Manager and pass it to the API securely.
 - [ ] Deploy API Gateway/Lambda and the web application with HTTPS.
+- [x] Route `/api/*` and `/health` through CloudFront to API Gateway with caching disabled.
 - [ ] Configure Cognito attributes `custom:tenantId` and `custom:role`; exercise registration, sign-in and invitation paths.
+- [x] Fail closed when staging/production is not using Cognito; restrict development authentication to loopback hosts and origins.
 - [ ] Configure CloudWatch alarms, log retention, AWS Budgets, WAF/rate limiting and an RDS restore drill.
 - [ ] Measure the chosen AWS Region from Lebanon instead of relying on unverified outage claims.
 

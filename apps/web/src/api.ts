@@ -116,9 +116,14 @@ const TOKENS: Record<Role, string> = {
   READ_ONLY: 'dev.readonly',
 };
 
+const DEV_AUTH_ENABLED =
+  import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test';
+
 function headers(role: Role) {
+  const accessToken = activeAuth?.accessToken ?? (DEV_AUTH_ENABLED ? TOKENS[role] : null);
+  if (!accessToken) throw new Error('A signed-in Masaar session is required.');
   return {
-    Authorization: `Bearer ${activeAuth?.accessToken ?? TOKENS[role]}`,
+    Authorization: `Bearer ${accessToken}`,
     'x-tenant-id': activeAuth?.session.tenantId ?? 'tenant_cedar_thread',
   };
 }

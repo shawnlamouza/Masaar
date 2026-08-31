@@ -60,8 +60,11 @@ Email, WhatsApp, courier and payment provider APIs are not falsely presented as 
 - User manual: `output/Masaar_User_Manual.docx`
 - SQL Server scripts and SSMS views: `infra/sql/`
 - Two-minute demo guide: `docs/DEMO_SCRIPT.md`
+- Two-minute demo video: `output/video/Masaar_2_Minute_Demo.mp4`
+- Editable demo storyboard: `output/video/Masaar_2_Minute_Demo.pptx`
+- Architecture diagram: `output/assets/Masaar_Architecture_Diagram.png`
 - Production handoff checklist: `docs/RELEASE_CHECKLIST.md`
 
 ## Quality gates
 
-Run `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `pnpm build` before every release. The final local audit passed 52 automated tests, TypeScript checks, lint, a production build, and responsive owner/employee/driver browser workflows. A public pilot additionally requires the SQL Server, Cognito, AWS, backup/restore, provider and URL gates in the release checklist.
+Run `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `pnpm build` before every release. The final local audit passed 55 automated tests, TypeScript checks, lint, a production build, and responsive owner/employee/driver browser workflows. Production configuration fails closed unless Cognito is enabled; development credentials and token fallback are restricted to loopback development/test environments. A public pilot additionally requires the SQL Server, Cognito, AWS, backup/restore, provider and URL gates in the release checklist.
