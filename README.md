@@ -53,19 +53,16 @@ Phase 5 connects ready orders to internal drivers, freelancers or delivery compa
 
 Email, WhatsApp, courier and payment provider APIs are not falsely presented as live in local development. In-app operational notifications are live; the Launch Center shows the exact external configuration and provider-approval gates that remain before AWS pilot deployment.
 
-## Final competition package
+## Final documents package
 
-- Functional specification: `output/Masaar_Final_Functional_Specification_and_Product_Vision.docx`
-- Implementation and release plan: `output/Masaar_Final_Implementation_and_Release_Plan.docx`
-- Final submission: `output/pdf/Masaar_Final_Submission.pdf`
-- Editable final submission: `output/Masaar_Final_Submission.docx`
-- User manual: `output/Masaar_User_Manual.docx`
-- SQL Server scripts and SSMS views: `infra/sql/`
-- Two-minute demo guide: `docs/DEMO_SCRIPT.md`
-- Mentor-aligned owner-led demo video (1:45): `output/video/Masaar_2_Minute_Demo.mp4`
-- Editable demo storyboard: `output/video/Masaar_2_Minute_Demo.pptx`
-- Architecture diagram: `output/assets/Masaar_Architecture_Diagram.png`
-- Production handoff checklist: `docs/RELEASE_CHECKLIST.md`
+- Functional specification and product vision
+- Implementation and release plan
+- Final submission report
+- User manual
+- SQL Server schema and SSMS reporting views
+- Two-minute demo guide
+- Product demonstration video
+- Architecture diagram
 
 ## Quality gates
 
