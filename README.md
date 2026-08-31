@@ -60,8 +60,7 @@ Email, WhatsApp, courier and payment provider APIs are not falsely presented as 
 - Final submission report
 - User manual
 - SQL Server schema and SSMS reporting views
-- Two-minute demo guide
-- Product demonstration video
+- Limited two-minute demo guide (due to the video's time limit)
 - Architecture diagram
 
 ## Quality gates

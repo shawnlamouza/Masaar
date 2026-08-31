@@ -9,7 +9,7 @@
 - [x] Automated tests, type checks, lint, production build and responsive role workflow review.
 - [x] Functional specification, implementation plan, rebuilt final submission Word/PDF, architecture diagram and 1:50 demo video.
 - [ ] Add every team member name and contribution to `output/pdf/Masaar_Final_Submission.pdf`.
-- [ ] Replace the four honest team-name placeholders with the real names.
+- [ ] Confirm the final team member names and contributions.
 - [x] Create the public GitHub repository: `https://github.com/shawnlamouza/Masaar`.
 - [ ] Add the deployed application and uploaded demo video URLs.
 
