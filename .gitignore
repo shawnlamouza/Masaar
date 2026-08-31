@@ -13,11 +13,7 @@ coverage/
 cfn-output.json
 tmp/
 ~$*
-output/~$*
-output/video/*.mp4
-output/video/*.pptx
-output/video/*.inspect.ndjson
-output/Masaar_Competition_Submission.zip
+output/
 output/Masaar_Functional_Specification_and_Product_Vision.docx
 output/Masaar_Project_Implementation_Phase_Plan.docx
 output/Masaar_Project_Implementation_Phase_Plan_Revised.docx
