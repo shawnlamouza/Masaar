@@ -56,6 +56,8 @@ Email, WhatsApp, courier and payment provider APIs are not falsely presented as 
 - Functional specification: `output/Masaar_Final_Functional_Specification_and_Product_Vision.docx`
 - Implementation and release plan: `output/Masaar_Final_Implementation_and_Release_Plan.docx`
 - Final submission: `output/pdf/Masaar_Final_Submission.pdf`
+- Editable final submission: `output/Masaar_Final_Submission.docx`
+- User manual: `output/Masaar_User_Manual.docx`
 - SQL Server scripts and SSMS views: `infra/sql/`
 - Two-minute demo guide: `docs/DEMO_SCRIPT.md`
 - Production handoff checklist: `docs/RELEASE_CHECKLIST.md`
