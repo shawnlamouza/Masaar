@@ -10,7 +10,8 @@
 - [x] Functional specification, implementation plan, rebuilt final submission Word/PDF, architecture diagram and 1:50 demo video.
 - [ ] Add every team member name and contribution to `output/pdf/Masaar_Final_Submission.pdf`.
 - [ ] Replace the four honest team-name placeholders with the real names.
-- [ ] Add the public GitHub, deployed application and uploaded demo video URLs.
+- [x] Create the public GitHub repository: `https://github.com/shawnlamouza/Masaar`.
+- [ ] Add the deployed application and uploaded demo video URLs.
 
 ## SQL Server and SSMS gate
 
@@ -25,6 +26,8 @@
 The current Windows SQL Server service advertises encryption but rejects command-line clients before authentication. Resolve its certificate/Force Encryption configuration in SQL Server Configuration Manager or use a correctly configured RDS instance; this project deliberately does not change machine-wide SQL security settings automatically.
 
 ## AWS gate
+
+- [ ] Complete the one-time verification code sent by AWS to the account inbox; credentials were accepted but provisioning is blocked at this identity check.
 
 - [ ] Provision a private Amazon RDS for SQL Server instance and security groups.
 - [ ] Store the SQL connection string in Secrets Manager and pass it to the API securely.

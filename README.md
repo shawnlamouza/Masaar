@@ -1,5 +1,7 @@
 # Masaar
 
+Public repository: https://github.com/shawnlamouza/Masaar
+
 Masaar is a Lebanon-tailored operations and decision-intelligence platform for small businesses that sell through Instagram, WhatsApp, TikTok, Facebook, phone, physical stores, or simple websites.
 
 The product captures what happens after a customer decides to order, protects delivery/payment/stock accountability, and converts those records into explainable owner actions.
@@ -60,7 +62,7 @@ Email, WhatsApp, courier and payment provider APIs are not falsely presented as 
 - User manual: `output/Masaar_User_Manual.docx`
 - SQL Server scripts and SSMS views: `infra/sql/`
 - Two-minute demo guide: `docs/DEMO_SCRIPT.md`
-- Two-minute demo video: `output/video/Masaar_2_Minute_Demo.mp4`
+- Mentor-aligned owner-led demo video (1:45): `output/video/Masaar_2_Minute_Demo.mp4`
 - Editable demo storyboard: `output/video/Masaar_2_Minute_Demo.pptx`
 - Architecture diagram: `output/assets/Masaar_Architecture_Diagram.png`
 - Production handoff checklist: `docs/RELEASE_CHECKLIST.md`
