@@ -108,12 +108,11 @@ export class ApiError extends Error {
   }
 }
 
-const TOKENS: Record<Role, string> = {
+const TOKENS: Partial<Record<Role, string>> = {
   OWNER: 'dev.owner',
   MANAGER: 'dev.manager',
   EMPLOYEE: 'dev.employee',
   DRIVER: 'dev.driver',
-  READ_ONLY: 'dev.readonly',
 };
 
 const DEV_AUTH_ENABLED =

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { provisionDevMember } from './auth.js';
 
 const config = loadConfig({
   AUTH_MODE: 'dev',
@@ -45,10 +46,20 @@ describe('Phase 7 explainable intelligence', () => {
       url: '/api/intelligence/snapshot?period=7D',
       headers: { authorization: 'Bearer dev.employee', 'x-tenant-id': 'tenant_cedar_thread' },
     });
+    const analystIdentity = provisionDevMember({
+      tenantId: 'tenant_cedar_thread',
+      displayName: 'Test Analyst',
+      email: `analyst-${Date.now()}@example.test`,
+      role: 'READ_ONLY',
+      password: 'test-only-password',
+    });
     const analyst = await app.inject({
       method: 'GET',
       url: '/api/intelligence/snapshot?period=7D',
-      headers: { authorization: 'Bearer dev.readonly', 'x-tenant-id': 'tenant_cedar_thread' },
+      headers: {
+        authorization: `Bearer ${analystIdentity.token}`,
+        'x-tenant-id': 'tenant_cedar_thread',
+      },
     });
     expect(employee.statusCode).toBe(403);
     expect(analyst.statusCode).toBe(200);

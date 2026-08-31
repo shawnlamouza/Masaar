@@ -11,7 +11,7 @@ pnpm dev
 
 The web application runs on `http://localhost:5173` and proxies API requests to `http://localhost:3001`. Without `SQLSERVER_CONNECTION_STRING`, the API deliberately uses process-local demo repositories so demonstrations can continue without external infrastructure. Restarting the API clears that local demonstration data.
 
-Development bearer identities are `dev.owner`, `dev.manager`, `dev.employee`, `dev.driver` and `dev.readonly`. The web role selector uses these identities against the fixed demo tenant `tenant_cedar_thread`. These identities are rejected when `AUTH_MODE=cognito`.
+Development bearer identities are `dev.owner`, `dev.manager`, `dev.employee`, and `dev.driver`. The web role selector uses these identities against the fixed demo tenant `tenant_cedar_thread`. These identities are rejected when `AUTH_MODE=cognito`.
 
 ## Quality gate
 

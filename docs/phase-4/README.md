@@ -25,7 +25,6 @@ All demo accounts use `masaar-demo`:
 - Manager: `manager@masaar.demo`
 - Employee: `employee@masaar.demo`
 - Driver: `driver@masaar.demo`
-- Analyst: `analyst@masaar.demo`
 
 These credentials exist only when `AUTH_MODE=dev`. Production keeps the existing Cognito verification path.
 

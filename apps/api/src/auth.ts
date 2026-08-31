@@ -66,13 +66,6 @@ const DEV_IDENTITIES: Record<string, DevIdentity> = {
     email: 'driver@masaar.demo',
     password: 'masaar-demo',
   },
-  'dev.readonly': {
-    userId: 'usr_readonly',
-    displayName: 'Lea Analyst',
-    role: 'READ_ONLY',
-    email: 'analyst@masaar.demo',
-    password: 'masaar-demo',
-  },
 };
 
 const DYNAMIC_IDENTITIES = new Map<string, { token: string; identity: DevIdentity }>();
