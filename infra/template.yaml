@@ -143,13 +143,13 @@ Resources:
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
-        EntryPoints: [src/lambda.ts]
+        EntryPoints: [apps/api/src/lambda.ts]
         Minify: true
         Sourcemap: true
         Target: es2022
     Properties:
-      CodeUri: ../apps/api
-      Handler: src/lambda.handler
+      CodeUri: ..
+      Handler: apps/api/src/lambda.handler
       ReservedConcurrentExecutions: 10
       VpcConfig:
         SecurityGroupIds:
