@@ -798,8 +798,41 @@ async function prepareSqlServer(pool: sql.ConnectionPool) {
   for (const statement of SQLSERVER_VIEW_BATCHES) await pool.request().batch(statement);
 }
 
+function databaseNameFromConnectionString(connectionString: string) {
+  const match = connectionString.match(/(?:^|;)\s*(?:Database|Initial Catalog)\s*=\s*([^;]+)/i);
+  return match?.[1]?.trim();
+}
+
+function masterConnectionString(connectionString: string) {
+  if (/(?:^|;)\s*(?:Database|Initial Catalog)\s*=/i.test(connectionString)) {
+    return connectionString.replace(
+      /((?:^|;)\s*(?:Database|Initial Catalog)\s*=\s*)[^;]+/i,
+      '$1master',
+    );
+  }
+  return `${connectionString.replace(/;?\s*$/, '')};Database=master`;
+}
+
+async function ensureApplicationDatabase(connectionString: string) {
+  const databaseName = databaseNameFromConnectionString(connectionString);
+  if (!databaseName || databaseName.toLowerCase() === 'master') return;
+  if (!/^[A-Za-z0-9_]+$/.test(databaseName)) {
+    throw new Error('SQL Server database name may contain only letters, numbers, and underscores');
+  }
+
+  const masterPool = await new sql.ConnectionPool(masterConnectionString(connectionString)).connect();
+  try {
+    await masterPool.request().batch(
+      `IF DB_ID(N'${databaseName}') IS NULL EXEC(N'CREATE DATABASE [${databaseName}]')`,
+    );
+  } finally {
+    await masterPool.close();
+  }
+}
+
 export async function connectSqlServerRepositories(config: AppConfig) {
   if (!config.SQLSERVER_CONNECTION_STRING) return null;
+  await ensureApplicationDatabase(config.SQLSERVER_CONNECTION_STRING);
   const pool = await new sql.ConnectionPool(config.SQLSERVER_CONNECTION_STRING).connect();
   await prepareSqlServer(pool);
   return {
