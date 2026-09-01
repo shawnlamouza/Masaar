@@ -28,7 +28,7 @@ jobs:
       - uses: aws-actions/setup-sam@v2
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
@@ -45,7 +45,9 @@ jobs:
           WebOrigin=${{ vars.WEB_ORIGIN }}
           BudgetEmail=${{ vars.BUDGET_EMAIL }}
           MonthlyBudgetUsd=${{ vars.MONTHLY_BUDGET_USD }}
-          SqlServerConnectionString=${{ secrets.SQLSERVER_CONNECTION_STRING }}
+          SqlServerSecretName=${{ vars.SQLSERVER_SECRET_NAME }}
+          VpcSubnetIds=${{ vars.VPC_SUBNET_IDS }}
+          LambdaSecurityGroupId=${{ vars.LAMBDA_SECURITY_GROUP_ID }}
       - name: Publish web application
         shell: bash
         run: |

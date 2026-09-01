@@ -14,10 +14,13 @@ Parameters:
   MonthlyBudgetUsd:
     Type: Number
     Default: 35
-  SqlServerConnectionString:
+  SqlServerSecretName:
     Type: String
-    NoEcho: true
     MinLength: 1
+  VpcSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
 
 Globals:
   Function:
@@ -34,7 +37,7 @@ Globals:
         WEB_ORIGIN: !Ref WebOrigin
         COGNITO_USER_POOL_ID: !Ref UserPool
         COGNITO_CLIENT_ID: !Ref UserPoolClient
-        SQLSERVER_CONNECTION_STRING: !Sub '{{resolve:secretsmanager:${ApplicationSecret}:SecretString:sqlServerConnectionString}}'
+        SQLSERVER_CONNECTION_STRING: !Sub '{{resolve:secretsmanager:${SqlServerSecretName}:SecretString:sqlServerConnectionString}}'
 
 Resources:
   WebBucket:
@@ -148,8 +151,13 @@ Resources:
       CodeUri: ../apps/api
       Handler: src/lambda.handler
       ReservedConcurrentExecutions: 10
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroupId
+        SubnetIds: !Ref VpcSubnetIds
       Policies:
         - AWSLambdaBasicExecutionRole
+        - AWSLambdaVPCAccessExecutionRole
         - AWSXRayDaemonWriteAccess
         - Statement:
             - Effect: Allow
@@ -216,12 +224,6 @@ Resources:
         AccessToken: minutes
         IdToken: minutes
         RefreshToken: days
-
-  ApplicationSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub masaar/${Environment}/application
-      SecretString: !Sub '{"sqlServerConnectionString":"${SqlServerConnectionString}"}'
 
   EvidenceBucket:
     Type: AWS::S3::Bucket

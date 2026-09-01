@@ -6,7 +6,7 @@ resolve_s3 = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 region = "REPLACE_WITH_APPROVED_AWS_REGION"
-parameter_overrides = "Environment=staging WebOrigin=https://REPLACE.example BudgetEmail=REPLACE@example.com MonthlyBudgetUsd=35 SqlServerConnectionString=REPLACE_AT_DEPLOYMENT"
+parameter_overrides = "Environment=staging WebOrigin=https://REPLACE.example BudgetEmail=REPLACE@example.com MonthlyBudgetUsd=35 SqlServerSecretName=masaar/staging/sqlserver VpcSubnetIds=subnet-REPLACE,subnet-REPLACE LambdaSecurityGroupId=sg-REPLACE"
 
 [production.deploy.parameters]
 stack_name = "masaar-production"
@@ -14,4 +14,4 @@ resolve_s3 = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 region = "REPLACE_WITH_APPROVED_AWS_REGION"
-parameter_overrides = "Environment=production WebOrigin=https://REPLACE.example BudgetEmail=REPLACE@example.com MonthlyBudgetUsd=75 SqlServerConnectionString=REPLACE_AT_DEPLOYMENT"
+parameter_overrides = "Environment=production WebOrigin=https://REPLACE.example BudgetEmail=REPLACE@example.com MonthlyBudgetUsd=75 SqlServerSecretName=masaar/production/sqlserver VpcSubnetIds=subnet-REPLACE,subnet-REPLACE LambdaSecurityGroupId=sg-REPLACE"
