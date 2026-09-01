@@ -32,8 +32,8 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
-      - name: Install SAM bundler
-        run: npm install --global esbuild@0.25.10
+      - name: Bundle Lambda from pnpm workspace
+        run: ./node_modules/.bin/esbuild apps/api/src/lambda.ts --bundle --platform=node --target=node22 --format=esm --minify --outfile=dist/lambda/index.mjs
       - run: sam build --template-file infra/template.yaml
       - name: Deploy reviewed infrastructure and API
         run: >-

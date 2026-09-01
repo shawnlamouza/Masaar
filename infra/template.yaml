@@ -140,16 +140,9 @@ Resources:
 
   ApiFunction:
     Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        EntryPoints: [apps/api/src/lambda.ts]
-        Minify: true
-        Sourcemap: true
-        Target: es2022
     Properties:
-      CodeUri: ..
-      Handler: apps/api/src/lambda.handler
+      CodeUri: ../dist/lambda
+      Handler: index.handler
       ReservedConcurrentExecutions: 10
       VpcConfig:
         SecurityGroupIds:
