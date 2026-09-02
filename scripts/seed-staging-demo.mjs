@@ -134,6 +134,7 @@ const customerInputs = [
   ['Rita Nassar', '76 222 111', 'CASH', 'North Lebanon', 'Tripoli', 'Mina', ['WhatsApp']],
   ['Nour Haddad', '03 123 456', 'CASH', 'Beirut', 'Achrafieh', 'Mar Mikhael', ['repeat customer']],
   ['Lara Saad', '71 890 123', 'CARD', 'South Lebanon', 'Sidon', 'Old Souks', ['Website']],
+  ['Fadi Daher', '71 555 902', 'CASH', 'Beirut', 'Beirut', 'Badaro', ['Instagram']],
 ];
 async function ensureCustomer([name, phoneOriginal, preferredPaymentMethod, governorate, area, locality, tags]) {
   let current = customers.find((item) => item.name === name);
@@ -179,6 +180,7 @@ const stories = [
   ['ready', 'Rita Nassar', variants[0].id, 'WHATSAPP', 'READY_FOR_DISPATCH', ['priority']],
   ['delivered', 'Nour Haddad', variants[1].id, 'INSTAGRAM', 'DELIVERED', ['repeat customer']],
   ['failed', 'Lara Saad', variants[2].id, 'WEBSITE', 'FAILED', ['address review']],
+  ['assigned', 'Fadi Daher', variants[3].id, 'INSTAGRAM', 'ASSIGNED_TO_DELIVERY', ['today route']],
 ];
 const transitionPath = ['PREPARING', 'PACKED', 'READY_FOR_DISPATCH'];
 for (const [key, customerName, variantId, source, target, tags] of stories) {
@@ -215,10 +217,11 @@ for (const [key, customerName, variantId, source, target, tags] of stories) {
     }});
     if (status === target) break;
   }
-  if (!['DELIVERED', 'FAILED'].includes(target)) continue;
+  if (!['ASSIGNED_TO_DELIVERY', 'DELIVERED', 'FAILED'].includes(target)) continue;
   const delivery = await request('/api/fulfillment/assignments', { token, method: 'POST', body: {
     orderId: order.id, resourceId: linkedDriver.id, zoneId: zone.id, reason: 'Morning demo dispatch',
   }});
+  if (target === 'ASSIGNED_TO_DELIVERY') continue;
   const now = new Date().toISOString();
   await request('/api/driver/commands', { token: driver.accessToken, method: 'POST', body: {
     commandId: `seed-${key}-out`, deliveryId: delivery.id, action: 'OUT_FOR_DELIVERY',
