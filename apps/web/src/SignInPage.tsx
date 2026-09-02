@@ -55,6 +55,8 @@ const DEMOS = [
 
 const DEV_AUTH_ENABLED =
   import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test';
+const JUDGE_DEMOS_VISIBLE =
+  DEV_AUTH_ENABLED || import.meta.env.VITE_JUDGE_DEMOS === 'true';
 
 const TOOL_TILES = [
   { label: 'Orders', icon: ShoppingCart, color: 'text-brand-gold' },
@@ -66,8 +68,8 @@ const TOOL_TILES = [
 
 export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => void }) {
   const [mode, setMode] = useState<'SIGN_IN' | 'REGISTER'>('SIGN_IN');
-  const [email, setEmail] = useState(DEV_AUTH_ENABLED ? 'joe@masaar.demo' : '');
-  const [password, setPassword] = useState(DEV_AUTH_ENABLED ? 'masaar-demo' : '');
+  const [email, setEmail] = useState(JUDGE_DEMOS_VISIBLE ? 'joe@masaar.demo' : '');
+  const [password, setPassword] = useState(JUDGE_DEMOS_VISIBLE ? 'masaar-demo' : '');
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -257,7 +259,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
               </Button>
             </form>
 
-            {mode === 'SIGN_IN' && DEV_AUTH_ENABLED && (
+            {mode === 'SIGN_IN' && JUDGE_DEMOS_VISIBLE && (
               <div className="auth-role-picker mt-5">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-[10px] font-extrabold uppercase tracking-[.2em] text-ink-muted">
