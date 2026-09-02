@@ -143,7 +143,6 @@ Resources:
     Properties:
       CodeUri: ../dist/lambda
       Handler: index.handler
-      ReservedConcurrentExecutions: 10
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroupId
