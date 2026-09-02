@@ -190,8 +190,10 @@ function AuthenticatedApp() {
       return null;
     }
   });
+  // Child workspace effects run before parent effects. Keep the API client in sync
+  // during render so the first dashboard requests always carry the new session.
+  setApiAuth(auth);
   useEffect(() => {
-    setApiAuth(auth);
     if (auth) sessionStorage.setItem('masaar.auth', JSON.stringify(auth));
     else sessionStorage.removeItem('masaar.auth');
   }, [auth]);
