@@ -1,0 +1,34 @@
+name: Diagnose Masaar staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    environment: staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Classify Lambda initialization failure inside AWS
+        shell: bash
+        run: |
+          WEB_URL=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
+          FUNCTION=$(aws cloudformation describe-stack-resource --stack-name masaar-staging --logical-resource-id ApiFunction --query 'StackResourceDetail.PhysicalResourceId' --output text)
+          curl --silent "${WEB_URL}/health" >/dev/null || true
+          sleep 3
+          START=$(date -d '30 minutes ago' +%s); END=$(date +%s)
+          QUERY='fields @message | filter @message like /ERROR|Error|Exception|Failure/ | parse @message /(?<errorClass>[A-Za-z][A-Za-z0-9_.]+(?:Error|Exception|Failure))/ | stats count() as occurrences by errorClass'
+          QUERY_ID=$(aws logs start-query --log-group-name "/aws/lambda/${FUNCTION}" --start-time "$START" --end-time "$END" --query-string "$QUERY" --query queryId --output text)
+          for wait in 1 2 3 4 5; do STATUS=$(aws logs get-query-results --query-id "$QUERY_ID" --query status --output text); [ "$STATUS" = "Complete" ] && break; sleep 2; done
+          aws logs get-query-results --query-id "$QUERY_ID" --query 'results[].{errorClass:[?field==`errorClass`].value|[0],occurrences:[?field==`occurrences`].value|[0]}' --output table
+          QUERY='stats sum(strcontains(@message,"Dynamic require")) as dynamicRequire, sum(strcontains(@message,"RequestError") or strcontains(@message,"EREQUEST")) as sqlRequest, sum(strcontains(@message,"EHOSTUNREACH") or strcontains(@message,"ENETUNREACH") or strcontains(@message,"EAI_AGAIN") or strcontains(@message,"getaddrinfo")) as network, sum(strcontains(@message,"CREATE DATABASE") or strcontains(@message,"Cannot open database") or strcontains(@message,"Invalid object name")) as database'
+          QUERY_ID=$(aws logs start-query --log-group-name "/aws/lambda/${FUNCTION}" --start-time "$START" --end-time "$END" --query-string "$QUERY" --query queryId --output text)
+          for wait in 1 2 3 4 5; do STATUS=$(aws logs get-query-results --query-id "$QUERY_ID" --query status --output text); [ "$STATUS" = "Complete" ] && break; sleep 2; done
+          aws logs get-query-results --query-id "$QUERY_ID" --query 'results[0][].value' --output text
