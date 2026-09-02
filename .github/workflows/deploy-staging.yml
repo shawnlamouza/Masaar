@@ -35,6 +35,14 @@ jobs:
       - name: Bundle Lambda from pnpm workspace
         run: ./node_modules/.bin/esbuild apps/api/src/lambda.ts --bundle --platform=node --target=node22 --format=esm --minify --outfile=dist/lambda/index.mjs
       - run: sam build --template-file infra/template.yaml
+      - name: Clear an earlier failed empty stack
+        shell: bash
+        run: |
+          STATUS=$(aws cloudformation describe-stacks --stack-name masaar-staging --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)
+          if [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
+            aws cloudformation delete-stack --stack-name masaar-staging
+            aws cloudformation wait stack-delete-complete --stack-name masaar-staging
+          fi
       - name: Deploy reviewed infrastructure and API
         run: >-
           sam deploy

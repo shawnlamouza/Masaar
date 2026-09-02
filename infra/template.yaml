@@ -315,26 +315,6 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
-  MonthlyBudget:
-    Type: AWS::Budgets::Budget
-    Properties:
-      Budget:
-        BudgetName: !Sub masaar-${Environment}-monthly
-        BudgetLimit:
-          Amount: !Ref MonthlyBudgetUsd
-          Unit: USD
-        BudgetType: COST
-        TimeUnit: MONTHLY
-      NotificationsWithSubscribers:
-        - Notification:
-            ComparisonOperator: GREATER_THAN
-            NotificationType: FORECASTED
-            Threshold: 80
-            ThresholdType: PERCENTAGE
-          Subscribers:
-            - Address: !Ref BudgetEmail
-              SubscriptionType: EMAIL
-
 Outputs:
   ApiUrl:
     Value: !Sub https://${MasaarApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
