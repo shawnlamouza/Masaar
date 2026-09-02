@@ -14,7 +14,7 @@ describe('Masaar API foundation', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/auth/sign-in',
-      payload: { email: 'joe@masaar.demo', password: 'masaar-demo' },
+      payload: { email: 'joe@masaar.demo', password: 'Masaar-Demo1!' },
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({

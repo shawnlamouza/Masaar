@@ -69,7 +69,7 @@ const TOOL_TILES = [
 export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => void }) {
   const [mode, setMode] = useState<'SIGN_IN' | 'REGISTER'>('SIGN_IN');
   const [email, setEmail] = useState(JUDGE_DEMOS_VISIBLE ? 'joe@masaar.demo' : '');
-  const [password, setPassword] = useState(JUDGE_DEMOS_VISIBLE ? 'masaar-demo' : '');
+  const [password, setPassword] = useState(JUDGE_DEMOS_VISIBLE ? 'Masaar-Demo1!' : '');
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -266,7 +266,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
                     Demo by role
                   </p>
                   <p className="text-[10px] text-ink-muted">
-                    Password: <strong>masaar-demo</strong>
+                    Password: <strong>Masaar-Demo1!</strong>
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -276,7 +276,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
                       key={role}
                       onClick={() => {
                         setEmail(demoEmail);
-                        setPassword('masaar-demo');
+                        setPassword('Masaar-Demo1!');
                       }}
                       className={`clickable-surface rounded-xl border px-2.5 py-2 text-left ${email === demoEmail ? 'border-brand-teal bg-brand-teal-soft' : 'border-border bg-white'}`}
                     >

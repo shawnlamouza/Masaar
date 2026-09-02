@@ -39,7 +39,7 @@ The product captures what happens after a customer decides to order, protects de
 3. Copy `.env.example` to the relevant app environment files if custom values are needed.
 4. Run `pnpm dev` and open `http://localhost:5173`.
 
-Development authentication is deliberately local-only. Sign in with `joe@masaar.demo` and `masaar-demo` for Joe's owner workspace; manager, employee, driver and analyst demo identities are available on the sign-in page. The API resolves the role and tenant from the authenticated session. Staging and production use Cognito.
+Development authentication is deliberately local-only. Sign in with `joe@masaar.demo` and `Masaar-Demo1!` for Joe's owner workspace; manager, employee, driver and analyst demo identities are available on the sign-in page. The API resolves the role and tenant from the authenticated session. Staging and production use Cognito.
 
 ## Approved technology direction
 

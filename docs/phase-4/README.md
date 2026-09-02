@@ -19,7 +19,7 @@ Phase 4 turns an Instagram, WhatsApp, Facebook, TikTok, phone, store or website 
 
 ## Demo credentials
 
-All demo accounts use `masaar-demo`:
+All demo accounts use `Masaar-Demo1!`:
 
 - Owner: `joe@masaar.demo`
 - Manager: `manager@masaar.demo`

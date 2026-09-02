@@ -70,7 +70,7 @@ jobs:
               aws cognito-idp admin-create-user --user-pool-id "$POOL" --username "$EMAIL" --message-action SUPPRESS \
                 --user-attributes Name=email,Value="$EMAIL" Name=email_verified,Value=true Name=name,Value="$DISPLAY_NAME" Name=custom:tenantId,Value=tenant_cedar_thread Name=custom:role,Value="$ROLE" >/dev/null
             fi
-            aws cognito-idp admin-set-user-password --user-pool-id "$POOL" --username "$EMAIL" --password 'masaar-demo' --permanent
+            aws cognito-idp admin-set-user-password --user-pool-id "$POOL" --username "$EMAIL" --password 'Masaar-Demo1!' --permanent
           }
           provision joe@masaar.demo OWNER Joe
           provision manager@masaar.demo MANAGER Nadim
@@ -90,7 +90,7 @@ jobs:
           FUNCTION=$(aws cloudformation describe-stack-resource --stack-name masaar-staging --logical-resource-id ApiFunction --query 'StackResourceDetail.PhysicalResourceId' --output text)
           for attempt in 1 2 3; do
             if curl --fail --silent --show-error "${WEB_URL}/health"; then
-              SIGN_IN=$(curl --fail --silent --show-error -X POST "${WEB_URL}/api/auth/sign-in" -H 'Content-Type: application/json' --data '{"email":"joe@masaar.demo","password":"masaar-demo"}')
+              SIGN_IN=$(curl --fail --silent --show-error -X POST "${WEB_URL}/api/auth/sign-in" -H 'Content-Type: application/json' --data '{"email":"joe@masaar.demo","password":"Masaar-Demo1!"}')
               jq -e '.accessToken and .session.role == "OWNER"' <<<"$SIGN_IN" >/dev/null
               exit 0
             fi

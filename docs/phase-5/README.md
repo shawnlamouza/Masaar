@@ -30,7 +30,7 @@ Phase 5 controls the Lebanese last mile and the money handoff that follows it. R
 
 ## Local demo
 
-Run `pnpm dev`, open `http://localhost:5173`, and sign in with the shared demo password `masaar-demo`.
+Run `pnpm dev`, open `http://localhost:5173`, and sign in with the shared demo password `Masaar-Demo1!`.
 
 - Joe: `joe@masaar.demo`
 - Rami: `employee@masaar.demo`

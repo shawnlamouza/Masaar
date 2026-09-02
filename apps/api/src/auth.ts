@@ -43,28 +43,28 @@ const DEV_IDENTITIES: Record<string, DevIdentity> = {
     displayName: 'Joe Haddad',
     role: 'OWNER',
     email: 'joe@masaar.demo',
-    password: 'masaar-demo',
+    password: 'Masaar-Demo1!',
   },
   'dev.manager': {
     userId: 'usr_manager',
     displayName: 'Nadim Manager',
     role: 'MANAGER',
     email: 'manager@masaar.demo',
-    password: 'masaar-demo',
+    password: 'Masaar-Demo1!',
   },
   'dev.employee': {
     userId: 'usr_employee',
     displayName: 'Rami Employee',
     role: 'EMPLOYEE',
     email: 'employee@masaar.demo',
-    password: 'masaar-demo',
+    password: 'Masaar-Demo1!',
   },
   'dev.driver': {
     userId: 'usr_driver',
     displayName: 'Karim Driver',
     role: 'DRIVER',
     email: 'driver@masaar.demo',
-    password: 'masaar-demo',
+    password: 'Masaar-Demo1!',
   },
 };
 
