@@ -132,6 +132,9 @@ async function requestJson(path: string, role: Role, init?: RequestInit): Promis
     ...init,
     headers: { ...headers(role), ...(init?.body ? { 'Content-Type': 'application/json' } : {}) },
   });
+  if (response.status === 401 || response.status === 403) {
+    window.dispatchEvent(new CustomEvent('masaar:auth-expired'));
+  }
   if (!response.ok) {
     const error = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     throw new ApiError(

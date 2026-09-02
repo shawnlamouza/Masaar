@@ -195,6 +195,11 @@ function AuthenticatedApp() {
     if (auth) sessionStorage.setItem('masaar.auth', JSON.stringify(auth));
     else sessionStorage.removeItem('masaar.auth');
   }, [auth]);
+  useEffect(() => {
+    const handleExpiredSession = () => setAuth(null);
+    window.addEventListener('masaar:auth-expired', handleExpiredSession);
+    return () => window.removeEventListener('masaar:auth-expired', handleExpiredSession);
+  }, []);
   if (!auth) return <SignInPage onSignedIn={setAuth} />;
   return <AppShell auth={auth} onSignOut={() => setAuth(null)} />;
 }
