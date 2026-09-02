@@ -25,6 +25,7 @@ import {
 } from '@masaar/contracts';
 import type { AppConfig } from './config.js';
 import type { BusinessSettingsRepository } from './settings.js';
+import type { FulfillmentRepository } from './fulfillment-repository.js';
 
 type DevIdentity = {
   userId: string;
@@ -256,6 +257,7 @@ export async function registerAuth(
   app: FastifyInstance,
   config: AppConfig,
   settings: BusinessSettingsRepository,
+  fulfillment: FulfillmentRepository,
 ) {
   const verifier =
     config.AUTH_MODE === 'cognito'
@@ -337,22 +339,24 @@ export async function registerAuth(
           message: 'This Cognito account is missing its Masaar business or role.',
           correlationId: request.correlationId,
         });
+      const session = sessionSchema.parse({
+        userId: payload.sub,
+        tenantId,
+        displayName:
+          typeof payload.name === 'string'
+            ? payload.name
+            : typeof payload['cognito:username'] === 'string'
+              ? payload['cognito:username']
+              : credentials.email,
+        role: role.data,
+        permissions: ROLE_PERMISSIONS[role.data],
+        authMode: 'cognito',
+        onboardingRequired: false,
+      });
+      await ensureDriverResource(fulfillment, session);
       return {
         accessToken,
-        session: sessionSchema.parse({
-          userId: payload.sub,
-          tenantId,
-          displayName:
-            typeof payload.name === 'string'
-              ? payload.name
-              : typeof payload['cognito:username'] === 'string'
-                ? payload['cognito:username']
-                : credentials.email,
-          role: role.data,
-          permissions: ROLE_PERMISSIONS[role.data],
-          authMode: 'cognito',
-          onboardingRequired: false,
-        }),
+        session,
       };
     }
     const match = findCredential(credentials.email);
@@ -364,15 +368,17 @@ export async function registerAuth(
       });
     }
     const { token: accessToken, identity } = match;
+    const session = sessionSchema.parse({
+      ...identity,
+      tenantId: identity.tenantId ?? 'tenant_cedar_thread',
+      permissions: ROLE_PERMISSIONS[identity.role],
+      authMode: 'dev',
+      onboardingRequired: identity.onboardingRequired ?? false,
+    });
+    await ensureDriverResource(fulfillment, session);
     return {
       accessToken,
-      session: sessionSchema.parse({
-        ...identity,
-        tenantId: identity.tenantId ?? 'tenant_cedar_thread',
-        permissions: ROLE_PERMISSIONS[identity.role],
-        authMode: 'dev',
-        onboardingRequired: identity.onboardingRequired ?? false,
-      }),
+      session,
     };
   });
 
@@ -415,6 +421,25 @@ export async function registerAuth(
         onboardingRequired: true,
       }),
     });
+  });
+}
+
+async function ensureDriverResource(fulfillment: FulfillmentRepository, session: Session) {
+  if (session.role !== 'DRIVER') return;
+  const resources = await fulfillment.listResources(session.tenantId);
+  if (resources.some((resource) => resource.id === session.userId)) return;
+  const timestamp = new Date().toISOString();
+  await fulfillment.saveResource({
+    id: session.userId,
+    tenantId: session.tenantId,
+    name: session.displayName,
+    type: 'INTERNAL_DRIVER',
+    phone: '+96170000000',
+    active: true,
+    serviceAreas: ['Lebanon'],
+    settlementTerms: 'Daily cash handover',
+    createdAt: timestamp,
+    updatedAt: timestamp,
   });
 }
 

@@ -85,6 +85,11 @@ jobs:
           DISTRIBUTION=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebDistributionId'].OutputValue" --output text)
           aws s3 sync apps/web/dist "s3://${WEB_BUCKET}" --delete
           aws cloudfront create-invalidation --distribution-id "${DISTRIBUTION}" --paths "/*"
+      - name: Seed the idempotent judge demonstration story
+        shell: bash
+        run: |
+          WEB_URL=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
+          MASAAR_BASE_URL="$WEB_URL" node scripts/seed-staging-demo.mjs
       - name: Verify live application
         shell: bash
         run: |

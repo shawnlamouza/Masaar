@@ -72,7 +72,7 @@ export async function buildApp(options?: {
 
   await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
   await app.register(sensible);
-  await registerAuth(app, config, settingsRepository);
+  await registerAuth(app, config, settingsRepository, fulfillmentRepository);
 
   app.get('/health', async () => ({
     status: 'ok' as const,
