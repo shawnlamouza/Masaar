@@ -65,3 +65,23 @@ jobs:
           DISTRIBUTION=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebDistributionId'].OutputValue" --output text)
           aws s3 sync apps/web/dist "s3://${WEB_BUCKET}" --delete
           aws cloudfront create-invalidation --distribution-id "${DISTRIBUTION}" --paths "/*"
+      - name: Verify live application
+        shell: bash
+        run: |
+          WEB_URL=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
+          FUNCTION=$(aws cloudformation describe-stack-resource --stack-name masaar-staging --logical-resource-id ApiFunction --query 'StackResourceDetail.PhysicalResourceId' --output text)
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error "${WEB_URL}/health"; then exit 0; fi
+            sleep 10
+          done
+          START=$(date -d '15 minutes ago' +%s); END=$(date +%s)
+          QUERY='stats sum(strcontains(@message,"Task timed out")) as timeout, sum(strcontains(@message,"Runtime.ImportModuleError")) as importError, sum(strcontains(@message,"Runtime.UserCodeSyntaxError")) as syntaxError, sum(strcontains(@message,"Failed to connect") or strcontains(@message,"ESOCKET") or strcontains(@message,"ETIMEDOUT")) as dbConnection, sum(strcontains(@message,"Login failed for user")) as dbLogin, sum(strcontains(@message,"AccessDenied")) as accessDenied'
+          QUERY_ID=$(aws logs start-query --log-group-name "/aws/lambda/${FUNCTION}" --start-time "$START" --end-time "$END" --query-string "$QUERY" --query queryId --output text)
+          for wait in 1 2 3 4 5; do
+            STATUS=$(aws logs get-query-results --query-id "$QUERY_ID" --query status --output text)
+            [ "$STATUS" = "Complete" ] && break
+            sleep 2
+          done
+          COUNTS=$(aws logs get-query-results --query-id "$QUERY_ID" --query 'results[0][].value' --output text)
+          echo "DIAGNOSTIC_COUNTS=$COUNTS"
+          exit 1
