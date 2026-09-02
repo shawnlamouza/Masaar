@@ -182,7 +182,7 @@ export function OrdersWorkspace({
             value={orders
               .filter((order) => order.status === 'READY_FOR_DISPATCH')
               .length.toString()}
-            detail="handoff to Phase 5"
+            detail="awaiting dispatch assignment"
           />
         </div>
       </section>

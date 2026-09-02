@@ -126,7 +126,7 @@ export function LaunchCenterWorkspace({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-brand-teal/30 bg-brand-teal/12 px-3 py-1 text-[10px] font-bold uppercase tracking-[.2em] text-brand-teal">
-                Competition release candidate
+                Operational readiness
               </span>
               <span className="rounded-full border border-white/10 bg-white/7 px-3 py-1 text-[10px] font-bold uppercase tracking-[.16em] text-white/60">
                 Governed expansion
@@ -138,8 +138,8 @@ export function LaunchCenterWorkspace({
               <span className="text-brand-teal">Grow without losing control.</span>
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-white/65 md:text-base">
-              Masaar now shows exactly what is ready, what remains a sandbox, who owns local
-              administrative follow-up, and which customer groups deserve a thoughtful next move.
+              Masaar shows what is ready, what still needs setup, who owns local administrative
+              follow-up, and which customer groups deserve a thoughtful next move.
             </p>
             <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold">
               {[

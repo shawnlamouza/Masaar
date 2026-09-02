@@ -127,23 +127,37 @@ for (const [name, governorates, areas, customerFee, businessCost, estimatedDays]
 
 let customers = await request('/api/commerce/customers', { token });
 const customerInputs = [
-  ['Jana Khoury', '70 123 456', 'WHISH', 'Beirut', 'Achrafieh', 'Sassine'],
-  ['Omar Saab', '03 445 566', 'CASH', 'Mount Lebanon', 'Metn', 'Sin El Fil'],
-  ['Mira Fadel', '76 123 456', 'CASH', 'Beirut', 'Hamra', 'Clemenceau'],
-  ['Tarek Nader', '81 234 567', 'OMT', 'Mount Lebanon', 'Metn', 'Antelias'],
-  ['Rita Nassar', '76 222 111', 'CASH', 'North Lebanon', 'Tripoli', 'Mina'],
-  ['Nour Haddad', '03 123 456', 'CASH', 'Beirut', 'Achrafieh', 'Mar Mikhael'],
-  ['Lara Saad', '71 890 123', 'CARD', 'South Lebanon', 'Sidon', 'Old Souks'],
+  ['Jana Khoury', '70 123 456', 'WHISH', 'Beirut', 'Achrafieh', 'Sassine', ['repeat customer', 'WhatsApp']],
+  ['Omar Saab', '03 445 566', 'CASH', 'Mount Lebanon', 'Metn', 'Sin El Fil', ['Instagram']],
+  ['Mira Fadel', '76 123 456', 'CASH', 'Beirut', 'Hamra', 'Clemenceau', ['TikTok']],
+  ['Tarek Nader', '81 234 567', 'OMT', 'Mount Lebanon', 'Metn', 'Antelias', ['Facebook']],
+  ['Rita Nassar', '76 222 111', 'CASH', 'North Lebanon', 'Tripoli', 'Mina', ['WhatsApp']],
+  ['Nour Haddad', '03 123 456', 'CASH', 'Beirut', 'Achrafieh', 'Mar Mikhael', ['repeat customer']],
+  ['Lara Saad', '71 890 123', 'CARD', 'South Lebanon', 'Sidon', 'Old Souks', ['Website']],
 ];
-async function ensureCustomer([name, phoneOriginal, preferredPaymentMethod, governorate, area, locality]) {
-  const current = customers.find((item) => item.name === name);
+async function ensureCustomer([name, phoneOriginal, preferredPaymentMethod, governorate, area, locality, tags]) {
+  let current = customers.find((item) => item.name === name);
+  if (current?.tags.includes('competition-demo')) {
+    current = await request(`/api/commerce/customers/${current.id}`, { token, method: 'PUT', body: {
+      name, phoneOriginal, preferredPaymentMethod,
+      addresses: current.addresses.map((address) => ({
+        label: address.label, governorate: address.governorate, area: address.area,
+        locality: address.locality, street: address.street, building: address.building,
+        floor: address.floor, landmark: address.landmark,
+        ...(address.mapUrl ? { mapUrl: address.mapUrl } : {}),
+        originalWording: address.originalWording,
+      })),
+      tags, notes: current.notes,
+    }});
+    customers = customers.map((item) => item.id === current.id ? current : item);
+  }
   if (current) return current;
   const created = await request('/api/commerce/customers', { token, method: 'POST', body: {
     name, phoneOriginal, preferredPaymentMethod,
     addresses: [{ label: 'Primary', governorate, area, locality, street: 'Main Road',
       building: 'Cedar Building', floor: '2', landmark: 'Near the pharmacy',
       originalWording: `${locality}, Main Road, Cedar Building, floor 2` }],
-    tags: ['competition-demo'], notes: 'Call before delivery.',
+    tags, notes: 'Call before delivery.',
   }});
   customers.push(created);
   return created;
@@ -158,24 +172,30 @@ if (!zone || !linkedDriver) throw new Error('The demo delivery zone or linked dr
 
 let orders = await request('/api/orders', { token });
 const stories = [
-  ['pending', 'Jana Khoury', variants[0].id, 'INSTAGRAM', 'PENDING'],
-  ['confirmed', 'Omar Saab', variants[2].id, 'WHATSAPP', 'CONFIRMED'],
-  ['preparing', 'Mira Fadel', variants[1].id, 'TIKTOK', 'PREPARING'],
-  ['packed', 'Tarek Nader', variants[3].id, 'FACEBOOK', 'PACKED'],
-  ['ready', 'Rita Nassar', variants[0].id, 'WHATSAPP', 'READY_FOR_DISPATCH'],
-  ['delivered', 'Nour Haddad', variants[1].id, 'INSTAGRAM', 'DELIVERED'],
-  ['failed', 'Lara Saad', variants[2].id, 'WEBSITE', 'FAILED'],
+  ['pending', 'Jana Khoury', variants[0].id, 'INSTAGRAM', 'PENDING', ['follow-up']],
+  ['confirmed', 'Omar Saab', variants[2].id, 'WHATSAPP', 'CONFIRMED', ['WhatsApp']],
+  ['preparing', 'Mira Fadel', variants[1].id, 'TIKTOK', 'PREPARING', ['priority']],
+  ['packed', 'Tarek Nader', variants[3].id, 'FACEBOOK', 'PACKED', ['gift']],
+  ['ready', 'Rita Nassar', variants[0].id, 'WHATSAPP', 'READY_FOR_DISPATCH', ['priority']],
+  ['delivered', 'Nour Haddad', variants[1].id, 'INSTAGRAM', 'DELIVERED', ['repeat customer']],
+  ['failed', 'Lara Saad', variants[2].id, 'WEBSITE', 'FAILED', ['address review']],
 ];
 const transitionPath = ['PREPARING', 'PACKED', 'READY_FOR_DISPATCH'];
-for (const [key, customerName, variantId, source, target] of stories) {
-  if (orders.some((item) => item.tags.includes(`demo:${key}`))) continue;
+for (const [key, customerName, variantId, source, target, tags] of stories) {
   const customer = customers.find((item) => item.name === customerName);
+  const existing = orders.find((item) => item.customerId === customer.id && item.source === source &&
+    item.items.some((line) => line.variantId === variantId));
+  if (existing) {
+    if (existing.tags.some((tag) => tag === 'competition-demo' || tag.startsWith('demo:')))
+      await request(`/api/orders/${existing.id}/tags`, { token, method: 'PUT', body: { tags } });
+    continue;
+  }
   const created = await request('/api/orders', { token, method: 'POST', body: {
     source, customerId: customer.id, customerName: customer.name, customerPhone: customer.phoneNormalized,
     items: [{ variantId, quantity: 1 }], discountType: 'FIXED', discountValue: 0,
     deliveryFeeMinor: 300, deliveryZoneId: zone.id, prepaidMinor: 0,
-    paymentMethod: customer.preferredPaymentMethod, tags: ['competition-demo', `demo:${key}`],
-    note: 'Competition demonstration order.',
+    paymentMethod: customer.preferredPaymentMethod, tags,
+    note: 'Structured order captured from a social-commerce conversation.',
   }});
   let order;
   if (target === 'PENDING') continue;

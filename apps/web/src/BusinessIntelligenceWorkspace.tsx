@@ -163,12 +163,12 @@ export function BusinessIntelligenceWorkspace({
           <div className="flex flex-col justify-center">
             <div className="flex flex-wrap items-center gap-2">
               <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-brand-gold">
-                <BrainCircuit className="size-4" /> Phase 7 · Decision intelligence
+                <BrainCircuit className="size-4" /> Decision intelligence
               </p>
               <StatusBadge tone={snapshot.dataMode === 'LIVE' ? 'success' : 'info'}>
                 {snapshot.dataMode === 'LIVE'
                   ? 'Live business data'
-                  : 'Demo history + live actions'}
+                  : 'Historical baseline + live actions'}
               </StatusBadge>
             </div>
             <h1 className="mt-4 max-w-3xl font-display text-4xl font-bold leading-[1.02] tracking-[-.045em] md:text-6xl">

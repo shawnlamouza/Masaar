@@ -6,7 +6,7 @@ export function ComponentGallery() {
     <main className="min-h-screen bg-surface-muted px-4 py-10 text-ink md:px-8">
       <div className="mx-auto max-w-5xl">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-brand-gold">
-          Phase 2 foundation
+          Design system foundation
         </p>
         <h1 className="mt-2 font-display text-4xl font-bold text-brand-navy">
           Masaar component gallery

@@ -185,7 +185,7 @@ export function PredictiveWorkspace({
           <div className="flex flex-col justify-center">
             <div className="flex flex-wrap items-center gap-2">
               <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-brand-gold">
-                <WandSparkles className="size-4" /> Phase 8 · Governed intelligence
+                <WandSparkles className="size-4" /> Governed forecasting
               </p>
               <StatusBadge tone={snapshot.forecast.confidence === 'HIGH' ? 'success' : 'warning'}>
                 {snapshot.forecast.confidence.toLowerCase()} forecast confidence

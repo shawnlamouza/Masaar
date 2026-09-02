@@ -373,7 +373,7 @@ function AppShell({ auth, onSignOut }: { auth: AuthSession; onSignOut: () => voi
                 )}
                 {label === 'Launch Center' && (
                   <span className="ml-auto rounded-full bg-brand-gold px-2 py-0.5 text-[9px] text-brand-navy">
-                    Final
+                    Ready
                   </span>
                 )}
               </button>
@@ -384,7 +384,7 @@ function AppShell({ auth, onSignOut }: { auth: AuthSession; onSignOut: () => voi
           <div className="absolute -right-7 -top-8 size-24 rounded-full bg-brand-teal/15 blur-2xl" />
           <div className="relative p-4">
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand-gold">
-              <Zap className="size-4" /> Launch-ready build
+              <Zap className="size-4" /> Operating confidence
             </p>
             <p className="mt-2 text-xs leading-5 text-white/60">
               Launch controls, local administration and governed growth now complete the system.
