@@ -434,7 +434,7 @@ function AppShell({ auth, onSignOut }: { auth: AuthSession; onSignOut: () => voi
                   )}
                 </button>
                 {notificationsOpen && (
-                  <div className="fixed inset-x-4 top-[68px] z-40 max-h-[calc(100dvh-84px)] overflow-hidden rounded-2xl border border-border bg-white shadow-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-13 sm:w-[min(380px,calc(100vw-2rem))]">
+                  <div className="fixed inset-x-4 bottom-[88px] top-[68px] z-40 overflow-hidden rounded-2xl border border-border bg-white shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-13 sm:w-[min(380px,calc(100vw-2rem))]">
                     <div className="flex items-center justify-between border-b border-border p-4">
                       <div>
                         <p className="font-display text-lg font-bold text-brand-navy">
@@ -448,7 +448,7 @@ function AppShell({ auth, onSignOut }: { auth: AuthSession; onSignOut: () => voi
                         {unread} unread
                       </StatusBadge>
                     </div>
-                    <div className="max-h-[calc(100dvh-168px)] overflow-auto overscroll-contain p-2 sm:max-h-[420px]">
+                    <div className="max-h-[calc(100dvh-248px)] overflow-auto overscroll-contain p-2 sm:max-h-[420px]">
                       {notifications.length ? (
                         notifications.map((notification) => (
                           <button
