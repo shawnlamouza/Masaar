@@ -94,7 +94,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
   }
 
   return (
-    <main className="auth-screen tech-grid relative h-[100dvh] overflow-hidden bg-brand-navy p-3 sm:p-5">
+    <main className="auth-screen tech-grid relative min-h-[100dvh] overflow-x-hidden bg-brand-navy p-3 sm:p-5">
       <div
         aria-hidden="true"
         className="signal-orb absolute -left-20 top-16 size-72 rounded-full bg-brand-teal/15 blur-3xl"
@@ -104,8 +104,8 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
         className="signal-orb absolute -right-16 bottom-8 size-80 rounded-full bg-brand-gold/12 blur-3xl"
       />
 
-      <div className="relative mx-auto grid h-full max-w-[1480px] overflow-hidden rounded-[28px] border border-white/15 bg-white shadow-2xl lg:grid-cols-[0.86fr_1.14fr]">
-        <section className="auth-form-panel flex min-h-0 items-center overflow-hidden px-6 py-5 sm:px-10 lg:px-12 xl:px-16">
+      <div className="relative mx-auto grid min-h-[calc(100dvh-1.5rem)] max-w-[1480px] overflow-hidden rounded-[28px] border border-white/15 bg-white shadow-2xl sm:min-h-[calc(100dvh-2.5rem)] lg:grid-cols-[0.86fr_1.14fr]">
+        <section className="auth-form-panel flex min-h-0 items-center px-6 py-6 sm:px-10 lg:px-12 xl:px-16">
           <div className="mx-auto w-full max-w-[570px]">
             <div className="flex items-center gap-3">
               <img

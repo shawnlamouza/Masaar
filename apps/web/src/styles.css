@@ -533,7 +533,7 @@ input[type='range'] {
   }
 }
 
-@media (max-height: 760px) and (min-width: 1024px) {
+@media (max-height: 820px) and (min-width: 1024px) {
   .auth-form-panel {
     padding-top: 1rem;
     padding-bottom: 1rem;
