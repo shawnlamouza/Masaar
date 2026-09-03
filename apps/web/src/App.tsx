@@ -393,7 +393,7 @@ function AppShell({ auth, onSignOut }: { auth: AuthSession; onSignOut: () => voi
         </div>
       </aside>
       <main className="min-w-0">
-        <header className="sticky top-0 z-30 border-b border-border bg-white/88 px-4 py-3 backdrop-blur-xl md:px-7">
+        <header className="sticky top-0 z-30 border-b border-border bg-white/96 px-4 py-3 md:bg-white/88 md:px-7 md:backdrop-blur-xl">
           <div className="mx-auto flex max-w-[1500px] items-center gap-3">
             <button
               aria-label="Open navigation"
