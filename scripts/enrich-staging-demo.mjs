@@ -69,6 +69,7 @@ for (const story of stories) {
       paymentMethod: customer.preferredPaymentMethod,
       tags: story.tags,
       note: 'Repeat purchase captured through the weekly social-commerce campaign.',
+      duplicateOverrideReason: 'Verified repeat purchase from a separate weekly campaign.',
     }});
     order = created.order;
   }
