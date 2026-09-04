@@ -67,6 +67,41 @@ export async function seedPersistentDemoHistory(repositories: Repositories) {
   let created = 0;
   const start = Date.parse('2026-06-14T09:00:00.000Z');
 
+  const plannedSales = new Map<string, number>();
+  for (let index = 0; index < 30; index += 1) {
+    if (finalFailures.has(index)) continue;
+    const selected = variants[(index * 3) % variants.length]!;
+    plannedSales.set(
+      selected.variant.id,
+      (plannedSales.get(selected.variant.id) ?? 0) + (index % 6 === 0 ? 2 : 1),
+    );
+  }
+  for (const selected of variants) {
+    const idempotencyKey = `history:receipt:${selected.variant.id}`;
+    if (await inventory.findMovementByKey(tenantId, idempotencyKey)) continue;
+    const quantity = (plannedSales.get(selected.variant.id) ?? 0) + 12;
+    await inventory.saveMovement({
+      id: `mov_history_receipt_${selected.variant.id}`,
+      tenantId,
+      productId: selected.product.id,
+      productName: selected.product.name,
+      variantId: selected.variant.id,
+      sku: selected.variant.sku,
+      type: 'RECEIPT',
+      quantity,
+      onHandDelta: quantity,
+      reservedDelta: 0,
+      locationId: 'main',
+      sourceType: 'RECEIPT',
+      sourceId: 'receipt_history_launch_stock',
+      reason: 'Supplier stock received for the recorded summer sales period.',
+      unitCost: selected.variant.currentUnitCost,
+      idempotencyKey,
+      createdAt: iso(start - 2 * 86_400_000),
+      createdBy: ownerId,
+    });
+  }
+
   for (let index = 0; index < 30; index += 1) {
     const sequence = String(index + 1).padStart(3, '0');
     const orderId = `ord_history_${sequence}`;

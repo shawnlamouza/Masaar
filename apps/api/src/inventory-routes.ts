@@ -81,7 +81,7 @@ export async function buildSnapshot(
         const supplier = variant.supplierId ? supplierMap.get(variant.supplierId) : undefined;
         const dailySales = soldLast30Days / 30;
         const stockCoverDays =
-          dailySales > 0 ? Math.round((available / dailySales) * 10) / 10 : null;
+          dailySales > 0 ? Math.max(0, Math.round((available / dailySales) * 10) / 10) : null;
         const leadTime = supplier?.leadTimeDays ?? 7;
         const lowStockThreshold = Math.max(3, Math.ceil(dailySales * (leadTime + 3)));
         const targetUnits = Math.ceil(dailySales * (leadTime + 14));

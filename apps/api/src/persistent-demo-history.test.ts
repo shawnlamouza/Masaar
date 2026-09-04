@@ -29,7 +29,9 @@ describe('persistent demonstration history', () => {
       failureReason: 'CUSTOMER_UNAVAILABLE',
     });
     expect(await repositories.fulfillmentRepository.listPaymentEntries(tenantId)).not.toHaveLength(0);
-    expect(await repositories.inventoryRepository.listMovements(tenantId)).not.toHaveLength(0);
+    expect(await repositories.inventoryRepository.listMovements(tenantId)).toContainEqual(
+      expect.objectContaining({ type: 'RECEIPT', sourceId: 'receipt_history_launch_stock' }),
+    );
     expect(await repositories.inventoryRepository.listReturns(tenantId)).toContainEqual(
       expect.objectContaining({ id: 'ret_history_019', status: 'RESOLVED' }),
     );
