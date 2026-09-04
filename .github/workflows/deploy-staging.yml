@@ -78,14 +78,6 @@ jobs:
           provision manager@masaar.demo MANAGER Nadim
           provision employee@masaar.demo EMPLOYEE Rami
           provision driver@masaar.demo DRIVER Karim
-      - name: Restore the agreed demonstration baseline
-        shell: bash
-        run: |
-          FUNCTION=$(aws cloudformation describe-stack-resource --stack-name masaar-staging --logical-resource-id ApiFunction --query 'StackResourceDetail.PhysicalResourceId' --output text)
-          aws lambda invoke --function-name "$FUNCTION" --cli-binary-format raw-in-base64-out \
-            --payload '{"maintenanceAction":"RESTORE_DEMO_BASELINE_2026_09_03"}' /tmp/restore-result.json
-          cat /tmp/restore-result.json
-          jq -e '.ok == true' /tmp/restore-result.json >/dev/null
       - name: Publish web application
         shell: bash
         run: |
@@ -98,11 +90,6 @@ jobs:
         run: |
           WEB_URL=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
           MASAAR_BASE_URL="$WEB_URL" node scripts/seed-staging-demo.mjs
-      - name: Add the compact business-intelligence growth story
-        shell: bash
-        run: |
-          WEB_URL=$(aws cloudformation describe-stacks --stack-name masaar-staging --query "Stacks[0].Outputs[?OutputKey=='WebUrl'].OutputValue" --output text)
-          MASAAR_BASE_URL="$WEB_URL" node scripts/enrich-staging-demo.mjs
       - name: Verify live application
         shell: bash
         run: |
