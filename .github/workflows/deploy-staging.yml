@@ -78,6 +78,14 @@ jobs:
           provision manager@masaar.demo MANAGER Nadim
           provision employee@masaar.demo EMPLOYEE Rami
           provision driver@masaar.demo DRIVER Karim
+      - name: Create persistent demonstration history
+        shell: bash
+        run: |
+          FUNCTION=$(aws cloudformation describe-stack-resource --stack-name masaar-staging --logical-resource-id ApiFunction --query 'StackResourceDetail.PhysicalResourceId' --output text)
+          aws lambda invoke --function-name "$FUNCTION" --cli-binary-format raw-in-base64-out \
+            --payload '{"maintenanceAction":"SEED_PERSISTENT_DEMO_HISTORY"}' /tmp/history-result.json
+          cat /tmp/history-result.json
+          jq -e '.ok == true' /tmp/history-result.json >/dev/null
       - name: Publish web application
         shell: bash
         run: |

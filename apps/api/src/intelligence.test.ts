@@ -27,13 +27,13 @@ describe('Phase 7 explainable intelligence', () => {
     const snapshot = response.json();
     expect(snapshot).toMatchObject({
       period: '30D',
-      dataMode: 'DEMO_WITH_HISTORY',
+      dataMode: 'LIVE',
       currency: 'USD',
     });
     expect(snapshot.trend.length).toBeGreaterThan(5);
-    expect(snapshot.channels.length).toBeGreaterThan(2);
+    expect(snapshot.channels.length).toBeGreaterThan(1);
     expect(snapshot.insights[0]).toMatchObject({ target: 'Payments', confidence: 'HIGH' });
-    expect(snapshot.cash.recognizedRevenueMinor).toBeGreaterThan(snapshot.cash.collectedMinor);
+    expect(snapshot.cash.recognizedRevenueMinor).toBeGreaterThanOrEqual(snapshot.cash.collectedMinor);
     expect(snapshot.methodology.join(' ')).toContain('Recognized revenue');
     expect(snapshot.methodology.join(' ')).toContain('owner-approved reference of 89,500 LBP/USD');
   });

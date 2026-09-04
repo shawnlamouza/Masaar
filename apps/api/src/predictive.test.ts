@@ -35,7 +35,7 @@ describe('Phase 8 governed predictive intelligence', () => {
     expect(snapshot.anomalies.some((item: { kind: string }) => item.kind === 'PAYMENT')).toBe(true);
     expect(snapshot.governance).toMatchObject({
       assistantMode: 'GROUNDED_RULE_ENGINE',
-      forecastReady: true,
+      forecastReady: false,
     });
     expect(snapshot.governance.limitations.join(' ')).toContain('never a blacklist');
   });

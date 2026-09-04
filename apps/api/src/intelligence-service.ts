@@ -49,61 +49,6 @@ export type IntelligenceInputs = {
 };
 
 const PERIOD_DAYS: Record<IntelligencePeriod, number> = { '7D': 7, '30D': 30, '90D': 90 };
-const SOURCE_ROTATION: OrderSource[] = [
-  'INSTAGRAM',
-  'WHATSAPP',
-  'INSTAGRAM',
-  'TIKTOK',
-  'WEBSITE',
-  'WHATSAPP',
-  'FACEBOOK',
-];
-const PRODUCTS = [
-  { id: 'prd_linen_shirt', name: 'Linen Shirt', price: 3900, cost: 1820 },
-  { id: 'prd_beirut_tote', name: 'Beirut Line Tote', price: 2600, cost: 1150 },
-  { id: 'prd_linen_shirt', name: 'Linen Shirt', price: 3500, cost: 1820 },
-];
-const AREAS = [
-  { area: 'Achrafieh', governorate: 'Beirut' },
-  { area: 'Antelias', governorate: 'Mount Lebanon' },
-  { area: 'Hamra', governorate: 'Beirut' },
-  { area: 'Jounieh', governorate: 'Mount Lebanon' },
-  { area: 'Tripoli', governorate: 'North Lebanon' },
-  { area: 'Zahle', governorate: 'Bekaa' },
-];
-
-function demoFacts(): Fact[] {
-  const start = Date.parse('2026-05-26T10:00:00.000Z');
-  return Array.from({ length: 76 }, (_, index) => {
-    const date = new Date(start + index * 29 * 60 * 60 * 1000);
-    const product = PRODUCTS[index % PRODUCTS.length]!;
-    const area = AREAS[(index * 5) % AREAS.length]!;
-    const failed = index % 11 === 0 || (area.area === 'Tripoli' && index % 9 === 0);
-    const delivered = !failed;
-    const price = product.price + (index % 5 === 0 ? 300 : 0);
-    return {
-      id: `history_${index}`,
-      occurredAt: date.toISOString(),
-      source: SOURCE_ROTATION[index % SOURCE_ROTATION.length]!,
-      productId: product.id,
-      productName: product.name,
-      area: area.area,
-      governorate: area.governorate,
-      revenueMinor: delivered ? price : 0,
-      costMinor: delivered ? product.cost : 0,
-      collectedMinor: delivered && index % 13 !== 0 ? price : 0,
-      delivered,
-      attempted: true,
-      failed,
-      firstAttempt: delivered && index % 8 !== 0,
-      ...(failed
-        ? { failureReason: index % 2 === 0 ? 'INCORRECT_ADDRESS' : 'CUSTOMER_UNAVAILABLE' }
-        : {}),
-      customerKey: `demo_customer_${index % 16}`,
-    };
-  });
-}
-
 function toUsdMinor(value: Money, latestFx: FxSnapshot | null) {
   if (value.currency === 'USD') return value.amountMinor;
   return latestFx ? Math.round((value.amountMinor / latestFx.lbpPerUsd) * 100) : 0;
@@ -112,6 +57,7 @@ function toUsdMinor(value: Money, latestFx: FxSnapshot | null) {
 function operationalFacts(input: IntelligenceInputs): Fact[] {
   const deliveries = new Map(input.deliveries.map((item) => [item.orderId, item]));
   const paymentsByOrder = new Map<string, number>();
+  const refundsByOrder = new Map<string, number>();
   for (const payment of input.payments) {
     if (payment.status !== 'POSTED') continue;
     const direction = payment.type === 'REFUND' ? -1 : 1;
@@ -120,14 +66,20 @@ function operationalFacts(input: IntelligenceInputs): Fact[] {
       (paymentsByOrder.get(payment.orderId) ?? 0) +
         direction * toUsdMinor(payment.amount, input.latestFx),
     );
+    if (payment.type === 'REFUND')
+      refundsByOrder.set(
+        payment.orderId,
+        (refundsByOrder.get(payment.orderId) ?? 0) + toUsdMinor(payment.amount, input.latestFx),
+      );
   }
   return input.orders.map((order) => {
     const delivery = deliveries.get(order.id);
     const recognized = ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(order.status);
     const failed = order.status === 'FAILED' || delivery?.status === 'FAILED';
     const lastAttempt = delivery?.attempts.at(-1);
-    const revenue = recognized ? toUsdMinor(order.totals.grandTotal, input.latestFx) : 0;
-    const cost = recognized
+    const grossRevenue = recognized ? toUsdMinor(order.totals.grandTotal, input.latestFx) : 0;
+    const revenue = Math.max(0, grossRevenue - (refundsByOrder.get(order.id) ?? 0));
+    const cost = recognized && revenue > 0
       ? order.items.reduce(
           (sum, item) => sum + toUsdMinor(item.unitCost, input.latestFx) * item.quantity,
           0,
@@ -165,10 +117,9 @@ function inWindow(fact: Fact, from: number, until: number) {
 }
 
 export function buildIntelligenceSnapshot(input: IntelligenceInputs): IntelligenceSnapshot {
-  const demo = !input.tenantId.startsWith('org_');
-  const allFacts = [...(demo ? demoFacts() : []), ...operationalFacts(input)];
+  const allFacts = operationalFacts(input);
   const days = PERIOD_DAYS[input.period];
-  const now = demo ? Date.parse('2026-08-24T12:00:00.000Z') : Date.now();
+  const now = Date.now();
   const from = now - days * 86_400_000;
   const previousFrom = from - days * 86_400_000;
   const current = allFacts.filter((fact) => inWindow(fact, from, now + 1));
@@ -448,7 +399,7 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
     generatedAt: new Date().toISOString(),
     period: input.period,
     periodLabel: `Last ${days} days`,
-    dataMode: demo ? 'DEMO_WITH_HISTORY' : 'LIVE',
+    dataMode: 'LIVE',
     currency: 'USD',
     metrics: [
       metric(
@@ -547,11 +498,9 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
       input.latestFx
         ? `This USD view converts LBP records with the owner-approved reference of ${input.latestFx.lbpPerUsd.toLocaleString()} LBP/USD effective ${input.latestFx.effectiveAt.slice(0, 10)}.`
         : 'No owner-approved FX reference exists; LBP money is excluded from USD totals instead of being combined incorrectly.',
-      'Recognized revenue uses delivered order snapshots. Collected cash uses posted payment entries.',
+      'Recognized revenue uses delivered order snapshots net of posted refunds. Collected cash uses posted payment entries net of refunds.',
       'Gross margin includes snapshotted product cost but excludes delivery, packaging, acquisition and overhead.',
-      demo
-        ? 'Historical points are clearly marked demo workspace history; new activity is read from live operational records.'
-        : 'All values are calculated from this business tenant’s operational records.',
+      'All values—including historical periods—are calculated from persistent operational records that can be inspected in Masaar.',
     ],
   });
 }
