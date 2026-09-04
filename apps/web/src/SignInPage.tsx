@@ -20,7 +20,14 @@ import {
   UserRoundCheck,
 } from 'lucide-react';
 import { Button } from '@masaar/ui';
-import { registerBusiness, signIn, type AuthSession } from './api';
+import {
+  confirmPasswordReset,
+  ApiError,
+  registerBusiness,
+  requestPasswordReset,
+  signIn,
+  type AuthSession,
+} from './api';
 
 const DEMOS = [
   {
@@ -67,11 +74,13 @@ const TOOL_TILES = [
 ] as const;
 
 export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => void }) {
-  const [mode, setMode] = useState<'SIGN_IN' | 'REGISTER'>('SIGN_IN');
+  const [mode, setMode] = useState<'SIGN_IN' | 'REGISTER' | 'FORGOT' | 'RESET'>('SIGN_IN');
   const [email, setEmail] = useState(JUDGE_DEMOS_VISIBLE ? 'joe@masaar.demo' : '');
   const [password, setPassword] = useState(JUDGE_DEMOS_VISIBLE ? 'Masaar-Demo1!' : '');
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
+  const [code, setCode] = useState('');
+  const [notice, setNotice] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -80,13 +89,27 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
     event.preventDefault();
     setBusy(true);
     setError('');
+    setNotice('');
     try {
-      onSignedIn(
-        mode === 'SIGN_IN'
-          ? await signIn(email, password)
-          : await registerBusiness({ businessName, ownerName, email, password }),
-      );
+      if (mode === 'FORGOT') {
+        await requestPasswordReset(email);
+        setMode('RESET');
+        setNotice('If that account exists, Cognito sent a verification code to its email.');
+      } else if (mode === 'RESET') {
+        await confirmPasswordReset(email, code, password);
+        onSignedIn(await signIn(email, password));
+      } else if (mode === 'REGISTER') {
+        const result = await registerBusiness({ businessName, ownerName, email, password });
+        if ('verificationRequired' in result) {
+          setMode('RESET');
+          setNotice(result.message);
+        } else onSignedIn(result);
+      } else onSignedIn(await signIn(email, password));
     } catch (reason) {
+      if (reason instanceof ApiError && reason.payload.error === 'PASSWORD_RESET_REQUIRED') {
+        setMode('FORGOT');
+        setNotice('This account must verify its email before choosing a password.');
+      }
       setError(reason instanceof Error ? reason.message : 'Sign-in failed.');
     } finally {
       setBusy(false);
@@ -127,7 +150,7 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
               <button
                 type="button"
                 onClick={() => setMode('SIGN_IN')}
-                className={`rounded-lg px-3 py-2 text-xs font-bold transition hover:bg-white/70 ${mode === 'SIGN_IN' ? 'bg-white text-brand-navy shadow-sm' : 'text-ink-muted'}`}
+                className={`rounded-lg px-3 py-2 text-xs font-bold transition hover:bg-white/70 ${mode === 'SIGN_IN' || mode === 'FORGOT' || mode === 'RESET' ? 'bg-white text-brand-navy shadow-sm' : 'text-ink-muted'}`}
               >
                 Sign in
               </button>
@@ -149,19 +172,21 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
                 <Sparkles className="size-3.5" />{' '}
                 {mode === 'SIGN_IN'
                   ? 'Your role shapes your workspace'
-                  : 'Start clean—no demo data'}
+                  : mode === 'REGISTER' ? 'Start clean—no demo data' : 'Secure account recovery'}
               </span>
               <h1 className="mt-3 font-display text-[42px] font-bold leading-[1.02] tracking-[-.045em] text-brand-navy sm:text-[46px]">
-                {mode === 'SIGN_IN' ? 'Run the business.' : 'Build your workspace.'}
+                {mode === 'SIGN_IN' ? 'Run the business.' : mode === 'REGISTER' ? 'Build your workspace.' : 'Recover access.'}
                 <br />
                 <span className="text-brand-teal-deep">
-                  {mode === 'SIGN_IN' ? 'See the truth.' : 'Invite the right people.'}
+                  {mode === 'SIGN_IN' ? 'See the truth.' : mode === 'REGISTER' ? 'Invite the right people.' : 'Verify your email.'}
                 </span>
               </h1>
               <p className="mt-3 max-w-lg text-[13px] leading-5 text-ink-muted">
                 {mode === 'SIGN_IN'
                   ? 'One secure workspace for the people handling your orders, customers, prices and deliveries.'
-                  : 'Create the company first, then Masaar guides you through products, team access and delivery setup.'}
+                  : mode === 'REGISTER'
+                    ? 'Create the company first, then verify the owner email before entering the workspace.'
+                    : 'Cognito sends a time-limited code to the account email; Masaar never exposes an existing password.'}
               </p>
             </div>
 
@@ -215,7 +240,13 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
                   />
                 </div>
               </label>
-              <label className="block">
+              {mode === 'RESET' && (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-bold text-brand-navy">Email verification code</span>
+                  <input required inputMode="numeric" value={code} onChange={(event) => setCode(event.target.value)} className="min-h-12 w-full rounded-xl border border-border bg-surface-muted px-4 text-sm tracking-[.25em] outline-none focus:border-brand-teal focus:bg-white focus:ring-4 focus:ring-brand-teal-soft" />
+                </label>
+              )}
+              {mode !== 'FORGOT' && <label className="block">
                 <span className="mb-1.5 block text-xs font-bold text-brand-navy">Password</span>
                 <div className="relative">
                   <LockKeyhole className="absolute left-4 top-1/2 size-4.5 -translate-y-1/2 text-brand-teal-deep" />
@@ -235,7 +266,18 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
                     {showPassword ? <EyeOff className="size-4.5" /> : <Eye className="size-4.5" />}
                   </button>
                 </div>
-              </label>
+              </label>}
+              {mode === 'SIGN_IN' && (
+                <button type="button" onClick={() => { setMode('FORGOT'); setPassword(''); }} className="text-xs font-bold text-brand-teal-deep hover:underline">
+                  Forgot password?
+                </button>
+              )}
+              {(mode === 'FORGOT' || mode === 'RESET') && (
+                <button type="button" onClick={() => { setMode('SIGN_IN'); setCode(''); }} className="text-xs font-bold text-brand-teal-deep hover:underline">
+                  Back to sign in
+                </button>
+              )}
+              {notice && <p className="rounded-xl bg-brand-teal-soft px-4 py-2.5 text-xs font-semibold text-brand-teal-deep">{notice}</p>}
               {error && (
                 <p
                   role="alert"
@@ -251,10 +293,10 @@ export function SignInPage({ onSignedIn }: { onSignedIn: (auth: AuthSession) => 
                 {busy
                   ? mode === 'REGISTER'
                     ? 'Creating your business…'
-                    : 'Opening your workspace…'
+                    : mode === 'FORGOT' ? 'Sending code…' : mode === 'RESET' ? 'Securing account…' : 'Opening your workspace…'
                   : mode === 'REGISTER'
                     ? 'Create business workspace'
-                    : 'Enter Masaar'}
+                    : mode === 'FORGOT' ? 'Send verification code' : mode === 'RESET' ? 'Set password and enter' : 'Enter Masaar'}
                 <ArrowRight className="size-4.5" />
               </Button>
             </form>

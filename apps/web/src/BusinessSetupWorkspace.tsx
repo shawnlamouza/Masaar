@@ -15,6 +15,7 @@ import {
   Building2,
   Check,
   MapPinned,
+  KeyRound,
   Pencil,
   Plus,
   Truck,
@@ -29,6 +30,7 @@ import {
   getFulfillmentSnapshot,
   getTeam,
   inviteTeamMember,
+  resetTeamMemberPassword,
   updateDeliveryResource,
   updateDeliveryZone,
   updateBusinessSettings,
@@ -339,6 +341,7 @@ function TeamPanel({
     phone: '',
   });
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState('');
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -347,7 +350,9 @@ function TeamPanel({
       setOpen(false);
       setForm({ displayName: '', email: '', role: 'EMPLOYEE', phone: '' });
       await onInvited(
-        `${result.member.displayName} can now sign in as ${nice(result.member.role)}. Temporary password: ${result.temporaryPassword}`,
+        result.temporaryPassword
+          ? `${result.member.displayName} can sign in with temporary password ${result.temporaryPassword}.`
+          : `Secure password setup instructions were emailed to ${result.member.email}.`,
       );
     } finally {
       setBusy(false);
@@ -427,9 +432,28 @@ function TeamPanel({
               <p className="truncate text-sm font-bold text-brand-navy">{member.displayName}</p>
               <p className="truncate text-xs text-ink-muted">{member.email}</p>
             </div>
-            <div className="ml-auto text-right">
+            <div className="ml-auto flex items-center gap-2 text-right">
+              <button
+                type="button"
+                disabled={resetting === member.email}
+                title="Send secure password reset"
+                onClick={() => void (async () => {
+                  setResetting(member.email);
+                  try {
+                    const result = await resetTeamMemberPassword(role, member.email);
+                    await onInvited(result.temporaryPassword
+                      ? `Development reset for ${member.displayName}: ${result.temporaryPassword}`
+                      : `Password reset code sent securely to ${member.email}.`);
+                  } finally { setResetting(''); }
+                })()}
+                className="grid size-9 place-items-center rounded-xl border border-border text-brand-teal-deep transition hover:border-brand-teal hover:bg-brand-teal-soft disabled:opacity-50"
+              >
+                <KeyRound className="size-4" />
+              </button>
+              <div>
               <StatusBadge tone="success">{nice(member.role)}</StatusBadge>
               <p className="mt-1 text-[10px] text-ink-muted">{member.status}</p>
+              </div>
             </div>
           </div>
         ))}

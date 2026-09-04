@@ -165,7 +165,13 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   return signInResponseSchema.parse(value);
 }
 
-export async function registerBusiness(input: RegisterBusiness): Promise<AuthSession> {
+export type RegistrationResult = AuthSession | {
+  verificationRequired: true;
+  email: string;
+  message: string;
+};
+
+export async function registerBusiness(input: RegisterBusiness): Promise<RegistrationResult> {
   const response = await fetch('/api/auth/register-business', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -174,7 +180,24 @@ export async function registerBusiness(input: RegisterBusiness): Promise<AuthSes
   const value = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new ApiError(value.message ?? 'Business registration failed.', response.status, value);
+  if (value.verificationRequired === true) return value as RegistrationResult;
   return signInResponseSchema.parse(value);
+}
+
+export async function requestPasswordReset(email: string) {
+  const response = await fetch('/api/auth/forgot-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  });
+  if (!response.ok) throw new Error('Could not request a password reset.');
+}
+
+export async function confirmPasswordReset(email: string, code: string, newPassword: string) {
+  const response = await fetch('/api/auth/confirm-password-reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code, newPassword }),
+  });
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new ApiError(value.message ?? 'Password reset failed.', response.status, value);
 }
 
 async function getJson(path: string, role: Role) {
@@ -225,6 +248,12 @@ export async function inviteTeamMember(role: Role, input: InviteTeamMember) {
       body: JSON.stringify(input),
     }),
   );
+}
+
+export async function resetTeamMemberPassword(role: Role, email: string) {
+  return requestJson('/api/admin/team/reset-password', role, {
+    method: 'POST', body: JSON.stringify({ email }),
+  }) as Promise<{ sent: boolean; temporaryPassword?: string }>;
 }
 
 export async function getExpansionSnapshot(role: Role): Promise<ExpansionSnapshot> {

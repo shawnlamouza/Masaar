@@ -3,8 +3,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import {
   AdminCreateUserCommand,
+  AdminResetUserPasswordCommand,
   AdminSetUserPasswordCommand,
   CognitoIdentityProviderClient,
+  ConfirmForgotPasswordCommand,
+  ForgotPasswordCommand,
   InitiateAuthCommand,
   ListUsersCommand,
   type AttributeType,
@@ -145,6 +148,7 @@ export async function provisionMember(
     password: string;
     phone?: string;
     onboardingRequired?: boolean;
+    requireEmailProof?: boolean;
   },
 ) {
   if (config.AUTH_MODE === 'dev') return provisionDevMember(input);
@@ -176,6 +180,13 @@ export async function provisionMember(
         Permanent: true,
       }),
     );
+    if (input.requireEmailProof)
+      await client.send(
+        new AdminResetUserPasswordCommand({
+          UserPoolId: config.COGNITO_USER_POOL_ID!,
+          Username: email,
+        }),
+      );
   } catch (error) {
     if (error instanceof Error && error.name === 'UsernameExistsException')
       throw Object.assign(new Error('A user with this email already exists.'), {
@@ -223,7 +234,14 @@ export async function listTeam(config: AppConfig, tenantId: string): Promise<Tea
         displayName: attribute(user.Attributes, 'name') ?? email.split('@')[0] ?? 'Masaar user',
         email,
         role: role.data,
-        status: user.Enabled === false ? 'DISABLED' : 'ACTIVE',
+        status:
+          user.Enabled === false
+            ? 'DISABLED'
+            : ['FORCE_CHANGE_PASSWORD', 'RESET_REQUIRED', 'UNCONFIRMED'].includes(
+                  user.UserStatus ?? '',
+                )
+              ? 'INVITED'
+              : 'ACTIVE',
         createdAt: user.UserCreateDate?.toISOString() ?? new Date().toISOString(),
       }),
     ];
@@ -323,7 +341,13 @@ export async function registerAuth(
           credentials.password,
           verifier,
         ));
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === 'PasswordResetRequiredException')
+          return reply.code(409).send({
+            error: 'PASSWORD_RESET_REQUIRED',
+            message: 'Verify your email and choose a password to activate this account.',
+            correlationId: request.correlationId,
+          });
         return reply.code(401).send({
           error: 'INVALID_CREDENTIALS',
           message: 'Email or password is incorrect.',
@@ -382,6 +406,42 @@ export async function registerAuth(
     };
   });
 
+  app.post('/api/auth/forgot-password', async (request) => {
+    const email = String((request.body as { email?: unknown })?.email ?? '').trim().toLowerCase();
+    if (!email.includes('@')) return { accepted: true };
+    if (config.AUTH_MODE === 'cognito') {
+      try {
+        await cognitoClient(config).send(
+          new ForgotPasswordCommand({ ClientId: config.COGNITO_CLIENT_ID!, Username: email }),
+        );
+      } catch {
+        // Deliberately return the same response so this endpoint cannot reveal registered emails.
+      }
+    }
+    return { accepted: true };
+  });
+
+  app.post('/api/auth/confirm-password-reset', async (request, reply) => {
+    const body = request.body as { email?: string; code?: string; newPassword?: string };
+    if (!body.email || !body.code || !body.newPassword || body.newPassword.length < 8)
+      return reply.badRequest('Email, verification code and a password of at least 8 characters are required.');
+    if (config.AUTH_MODE !== 'cognito')
+      return reply.badRequest('Email password recovery is available in the deployed Cognito environment.');
+    try {
+      await cognitoClient(config).send(
+        new ConfirmForgotPasswordCommand({
+          ClientId: config.COGNITO_CLIENT_ID!,
+          Username: body.email.trim().toLowerCase(),
+          ConfirmationCode: body.code.trim(),
+          Password: body.newPassword,
+        }),
+      );
+    } catch {
+      return reply.badRequest('The verification code is invalid or expired. Request a new code and try again.');
+    }
+    return { reset: true };
+  });
+
   app.post('/api/auth/register-business', async (request, reply) => {
     const input = registerBusinessSchema.parse(request.body);
     const tenantId = `org_${randomUUID()}`;
@@ -392,6 +452,7 @@ export async function registerAuth(
       role: 'OWNER',
       password: input.password,
       onboardingRequired: true,
+      requireEmailProof: config.AUTH_MODE === 'cognito',
     });
     await settings.put(
       businessSettingsSchema.parse({
@@ -405,10 +466,13 @@ export async function registerAuth(
         updatedBy: identity.userId,
       }),
     );
-    const accessToken =
-      config.AUTH_MODE === 'dev'
-        ? token
-        : (await clientSignIn(config, input.email, input.password, verifier)).accessToken;
+    if (config.AUTH_MODE === 'cognito')
+      return reply.code(202).send({
+        verificationRequired: true,
+        email: input.email.trim().toLowerCase(),
+        message: 'A verification code was sent by Amazon Cognito. Set your password to activate the workspace.',
+      });
+    const accessToken = token;
     return reply.code(201).send({
       accessToken,
       session: sessionSchema.parse({
@@ -422,6 +486,24 @@ export async function registerAuth(
       }),
     });
   });
+}
+
+export async function resetMemberPassword(config: AppConfig, email: string) {
+  const normalized = email.trim().toLowerCase();
+  if (config.AUTH_MODE === 'dev') {
+    const match = findCredential(normalized);
+    if (!match) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
+    const temporaryPassword = `Masaar-${randomUUID().slice(0, 8)}`;
+    match.identity.password = temporaryPassword;
+    return { sent: false, temporaryPassword };
+  }
+  await cognitoClient(config).send(
+    new AdminResetUserPasswordCommand({
+      UserPoolId: config.COGNITO_USER_POOL_ID!,
+      Username: normalized,
+    }),
+  );
+  return { sent: true };
 }
 
 async function ensureDriverResource(fulfillment: FulfillmentRepository, session: Session) {

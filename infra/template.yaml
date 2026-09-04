@@ -171,6 +171,7 @@ Resources:
               Action:
                 - cognito-idp:AdminCreateUser
                 - cognito-idp:AdminSetUserPassword
+                - cognito-idp:AdminResetUserPassword
                 - cognito-idp:ListUsers
               Resource: !GetAtt UserPool.Arn
         - S3WritePolicy:

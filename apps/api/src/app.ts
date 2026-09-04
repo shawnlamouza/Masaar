@@ -15,6 +15,7 @@ import {
   listTeam,
   provisionMember,
   registerAuth,
+  resetMemberPassword,
   requirePermission,
   requireSession,
 } from './auth.js';
@@ -110,6 +111,7 @@ export async function buildApp(options?: {
         role: role.data,
         password: temporaryPassword,
         ...(body.phone?.trim() ? { phone: body.phone.trim() } : {}),
+        requireEmailProof: config.AUTH_MODE === 'cognito',
       });
       if (role.data === 'DRIVER') {
         const timestamp = new Date().toISOString();
@@ -141,16 +143,39 @@ export async function buildApp(options?: {
           email: identity.email,
           displayName: identity.displayName,
           role: identity.role,
-          status: 'ACTIVE',
+          status: config.AUTH_MODE === 'cognito' ? 'INVITED' : 'ACTIVE',
           createdAt: identity.createdAt,
         },
-        temporaryPassword,
+        ...(config.AUTH_MODE === 'dev' ? { temporaryPassword } : {}),
+        delivery: config.AUTH_MODE === 'cognito' ? 'EMAIL' : 'DEVELOPMENT',
       });
     },
   );
 
   app.get('/api/admin/team', { preHandler: requirePermission('users:manage') }, async (request) =>
     listTeam(config, request.session!.tenantId),
+  );
+
+  app.post(
+    '/api/admin/team/reset-password',
+    { preHandler: requirePermission('users:manage') },
+    async (request, reply) => {
+      const email = String((request.body as { email?: unknown })?.email ?? '').trim().toLowerCase();
+      const member = (await listTeam(config, request.session!.tenantId)).find(
+        (item) => item.email.toLowerCase() === email,
+      );
+      if (!member) return reply.notFound('Team member not found in this business.');
+      const result = await resetMemberPassword(config, email);
+      await recordAudit(auditRepository, {
+        session: request.session!,
+        action: 'membership.password_reset_requested',
+        entityType: 'teamMember',
+        entityId: member.id,
+        correlationId: request.correlationId,
+        after: { email, delivery: result.sent ? 'EMAIL' : 'DEVELOPMENT' },
+      });
+      return result;
+    },
   );
 
   app.get('/api/foundation/settings', { preHandler: requireSession }, async (request) => {
