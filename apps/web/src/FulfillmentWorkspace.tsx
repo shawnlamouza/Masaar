@@ -51,6 +51,13 @@ const FAILURES: DeliveryFailureReason[] = [
   'DRIVER_OR_COURIER_ISSUE',
   'OTHER',
 ];
+const DELIVERY_FILTERS = [
+  { value: 'ASSIGNED', label: 'Assigned' },
+  { value: 'IN_PROGRESS', label: 'Out for delivery' },
+  { value: 'COMPLETED', label: 'Completed' },
+  { value: 'FAILED', label: 'Failed' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+] as const;
 const label = (value: string) =>
   value
     .toLowerCase()
@@ -223,12 +230,12 @@ function DeliveryCommand({ role }: { role: Role }) {
           />
           <div className="mb-4 grid gap-2 rounded-2xl border border-line bg-white p-3 sm:grid-cols-2">
             <select aria-label="Filter deliveries" value={deliveryFilter} onChange={(event) => setDeliveryFilter(event.target.value as typeof deliveryFilter)} className={inputClass}>
-              <option value="ALL">All delivery cases</option>
-              <option value="ASSIGNED">Assigned</option>
-              <option value="IN_PROGRESS">Out for delivery</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="FAILED">Failed</option>
-              <option value="CANCELLED">Cancelled</option>
+              <option value="ALL">All delivery cases ({snapshot.deliveries.length})</option>
+              {DELIVERY_FILTERS.map((filter) => (
+                <option key={filter.value} value={filter.value}>
+                  {filter.label} ({snapshot.deliveries.filter((item) => item.status === filter.value).length})
+                </option>
+              ))}
             </select>
             <select aria-label="Sort deliveries" value={deliverySort} onChange={(event) => setDeliverySort(event.target.value as typeof deliverySort)} className={inputClass}>
               <option value="NEWEST">Newest activity first</option>

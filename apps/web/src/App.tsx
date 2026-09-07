@@ -841,13 +841,21 @@ function Overview({
       const cashHeld = fulfillment.cashPositions
         .filter((item) => item.currency === 'USD' && item.holderId !== 'business_cash')
         .reduce((sum, item) => sum + item.amount.amountMinor, 0);
-      const closed = ['DELIVERED', 'CANCELLED', 'RETURNED', 'REFUNDED'];
+      const activeStatuses = [
+        'PENDING_CUSTOMER_CONFIRMATION',
+        'CONFIRMED',
+        'PREPARING',
+        'PACKED',
+        'READY_FOR_DISPATCH',
+        'ASSIGNED_TO_DELIVERY',
+        'OUT_FOR_DELIVERY',
+      ];
       const completed = fulfillment.deliveries.filter((item) => item.status === 'COMPLETED').length;
       const failed = fulfillment.deliveries.filter((item) => item.status === 'FAILED').length;
       setSummary({
         collected: `$${(usdCollected / 100).toFixed(2)}`,
         cashHeld: `$${(cashHeld / 100).toFixed(2)}`,
-        activeOrders: orders.filter((order) => !closed.includes(order.status)).length,
+        activeOrders: orders.filter((order) => activeStatuses.includes(order.status)).length,
         deliverySuccess:
           completed + failed ? `${Math.round((completed / (completed + failed)) * 100)}%` : '—',
         products: commerce.products.length,

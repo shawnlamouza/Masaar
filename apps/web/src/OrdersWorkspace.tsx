@@ -58,6 +58,15 @@ const ACTIVE_STATUSES = new Set<OrderStatus>([
   'ASSIGNED_TO_DELIVERY',
   'OUT_FOR_DELIVERY',
 ]);
+const DELIVERY_AND_HISTORY_STATUSES: OrderStatus[] = [
+  'ASSIGNED_TO_DELIVERY',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+  'FAILED',
+  'CANCELLED',
+  'RETURNED',
+  'REFUNDED',
+];
 const STAGE_GUIDE = ['Confirm', 'Prepare', 'Pack', 'Dispatch', 'Deliver', 'Settle'] as const;
 
 const SOURCES: OrderSource[] = [
@@ -144,6 +153,10 @@ export function OrdersWorkspace({
     sharedNext && selectedOrders.every((order) => nextBoardStatus(order.status) === sharedNext),
   );
   const laterOrders = orders.filter((order) => !BOARD_STATUSES.has(order.status));
+  const boardOrderCount = orders.filter((order) => BOARD_STATUSES.has(order.status)).length;
+  const deliveryOrderCount = orders.filter((order) =>
+    ['ASSIGNED_TO_DELIVERY', 'OUT_FOR_DELIVERY'].includes(order.status),
+  ).length;
   const visibleLaterOrders = [...laterOrders].filter(
     (order) => historyStatus === 'ALL' || order.status === historyStatus,
   ).sort((a, b) => historySort === 'STATUS'
@@ -181,9 +194,9 @@ export function OrdersWorkspace({
         </div>
         <div className="relative mt-7 grid gap-2 sm:grid-cols-3">
           <Pulse
-            label="Open workflow"
+            label="Active across workflow"
             value={orders.filter((order) => ACTIVE_STATUSES.has(order.status)).length.toString()}
-            detail="orders currently active"
+            detail={`${boardOrderCount} processing + ${deliveryOrderCount} in delivery`}
           />
           <Pulse
             label="Waiting on customer"
@@ -357,8 +370,12 @@ export function OrdersWorkspace({
               </div>
               <div className="flex flex-wrap gap-2">
                 <select aria-label="Filter order history" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value as 'ALL' | OrderStatus)} className="field min-h-10 py-2 text-xs">
-                  <option value="ALL">All delivery and history</option>
-                  {[...new Set(laterOrders.map((order) => order.status))].sort().map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}
+                  <option value="ALL">All delivery and history ({laterOrders.length})</option>
+                  {DELIVERY_AND_HISTORY_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)} ({laterOrders.filter((order) => order.status === status).length})
+                    </option>
+                  ))}
                 </select>
                 <select aria-label="Sort order history" value={historySort} onChange={(event) => setHistorySort(event.target.value as typeof historySort)} className="field min-h-10 py-2 text-xs">
                   <option value="NEWEST">Newest activity first</option>
