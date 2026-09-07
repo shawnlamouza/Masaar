@@ -53,6 +53,12 @@ const COLUMNS: { status: OrderStatus; title: string; accent: string }[] = [
   { status: 'READY_FOR_DISPATCH', title: 'Ready', accent: 'bg-brand-navy' },
 ];
 const BOARD_STATUSES = new Set<OrderStatus>(COLUMNS.map((column) => column.status));
+const ACTIVE_STATUSES = new Set<OrderStatus>([
+  ...BOARD_STATUSES,
+  'ASSIGNED_TO_DELIVERY',
+  'OUT_FOR_DELIVERY',
+]);
+const STAGE_GUIDE = ['Confirm', 'Prepare', 'Pack', 'Dispatch', 'Deliver', 'Settle'] as const;
 
 const SOURCES: OrderSource[] = [
   'INSTAGRAM',
@@ -91,6 +97,8 @@ export function OrdersWorkspace({
   const [quickOpen, setQuickOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [detail, setDetail] = useState<Order | null>(null);
+  const [historyStatus, setHistoryStatus] = useState<'ALL' | OrderStatus>('ALL');
+  const [historySort, setHistorySort] = useState<'NEWEST' | 'OLDEST' | 'STATUS'>('NEWEST');
   const canWrite = role !== 'READ_ONLY' && role !== 'DRIVER';
 
   async function reload() {
@@ -136,6 +144,13 @@ export function OrdersWorkspace({
     sharedNext && selectedOrders.every((order) => nextBoardStatus(order.status) === sharedNext),
   );
   const laterOrders = orders.filter((order) => !BOARD_STATUSES.has(order.status));
+  const visibleLaterOrders = [...laterOrders].filter(
+    (order) => historyStatus === 'ALL' || order.status === historyStatus,
+  ).sort((a, b) => historySort === 'STATUS'
+    ? a.status.localeCompare(b.status)
+    : historySort === 'OLDEST'
+      ? a.updatedAt.localeCompare(b.updatedAt)
+      : b.updatedAt.localeCompare(a.updatedAt));
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -167,9 +182,7 @@ export function OrdersWorkspace({
         <div className="relative mt-7 grid gap-2 sm:grid-cols-3">
           <Pulse
             label="Open workflow"
-            value={orders
-              .filter((order) => !['CANCELLED', 'DELIVERED', 'REFUNDED'].includes(order.status))
-              .length.toString()}
+            value={orders.filter((order) => ACTIVE_STATUSES.has(order.status)).length.toString()}
             detail="orders currently active"
           />
           <Pulse
@@ -186,6 +199,17 @@ export function OrdersWorkspace({
               .length.toString()}
             detail="awaiting dispatch assignment"
           />
+        </div>
+        <div className="relative mt-4 flex items-center overflow-x-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+          {STAGE_GUIDE.map((stage, index) => (
+            <div key={stage} className="flex min-w-fit flex-1 items-center">
+              <span className="grid size-7 place-items-center rounded-full border border-brand-teal/40 bg-brand-teal/15 text-[10px] font-extrabold text-brand-teal">
+                {index + 1}
+              </span>
+              <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-white/75">{stage}</span>
+              {index < STAGE_GUIDE.length - 1 && <span className="mx-3 h-px min-w-5 flex-1 bg-gradient-to-r from-brand-teal/60 to-brand-gold/40" />}
+            </div>
+          ))}
         </div>
       </section>
 
@@ -319,7 +343,7 @@ export function OrdersWorkspace({
         </div>
         {laterOrders.length > 0 && (
           <section className="mt-6 rounded-[24px] border border-border bg-white p-4 shadow-card sm:p-5">
-            <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+            <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[.16em] text-brand-gold">
                   Delivery and history
@@ -331,12 +355,21 @@ export function OrdersWorkspace({
                   Assigned, out-for-delivery, delivered, failed, cancelled, returned and refunded records remain visible here.
                 </p>
               </div>
-              <span className="w-fit rounded-xl bg-brand-navy px-3 py-2 text-xs font-bold text-white">
-                {laterOrders.length} records
-              </span>
+              <div className="flex flex-wrap gap-2">
+                <select aria-label="Filter order history" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value as 'ALL' | OrderStatus)} className="field min-h-10 py-2 text-xs">
+                  <option value="ALL">All delivery and history</option>
+                  {[...new Set(laterOrders.map((order) => order.status))].sort().map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}
+                </select>
+                <select aria-label="Sort order history" value={historySort} onChange={(event) => setHistorySort(event.target.value as typeof historySort)} className="field min-h-10 py-2 text-xs">
+                  <option value="NEWEST">Newest activity first</option>
+                  <option value="OLDEST">Oldest activity first</option>
+                  <option value="STATUS">Group by status</option>
+                </select>
+                <span className="rounded-xl bg-brand-navy px-3 py-2.5 text-xs font-bold text-white">{visibleLaterOrders.length} shown</span>
+              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {laterOrders.map((order) => (
+              {visibleLaterOrders.map((order) => (
                 <OrderCard
                   key={order.id}
                   order={order}
@@ -415,7 +448,7 @@ function OrderCard({
         ? 'success'
         : 'info';
   return (
-    <article className="clickable-surface group rounded-2xl border border-transparent bg-white p-4 shadow-sm">
+    <article className={`clickable-surface group rounded-2xl border bg-white p-4 shadow-sm ${order.status === 'FAILED' || order.status === 'CANCELLED' ? 'border-danger-strong/25' : order.status === 'DELIVERED' ? 'border-success-strong/20' : order.status === 'REFUNDED' || order.status === 'RETURNED' ? 'border-brand-gold/35' : 'border-transparent'}`}>
       <div className="flex items-start justify-between gap-2">
         <button onClick={onOpen} className="group/open text-left">
           <span className="font-display text-sm font-bold text-brand-navy">
@@ -565,8 +598,8 @@ function QuickOrderPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm">
-      <section className="h-full w-full max-w-2xl overflow-y-auto bg-white p-5 shadow-2xl md:p-8">
+    <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm">
+      <section onMouseDown={(event) => event.stopPropagation()} className="h-full w-full max-w-2xl overflow-y-auto bg-white p-5 shadow-2xl md:p-8">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[.18em] text-brand-teal-deep">
@@ -931,7 +964,7 @@ function OrderDetail({
     window.setTimeout(() => setToast(''), 1800);
   }
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm">
+    <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm">
       <section className="h-full w-full max-w-xl overflow-y-auto bg-white shadow-2xl">
         <div className="sticky top-0 z-10 border-b border-border bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between">

@@ -25,8 +25,16 @@ export const inviteTeamMemberSchema = z.object({
   email: z.string().email(),
   role: workspaceRoleSchema.exclude(['OWNER']),
   phone: z.string().min(5).max(30).optional(),
+  temporaryPassword: z.string().min(8).max(100).optional(),
 });
 export type InviteTeamMember = z.infer<typeof inviteTeamMemberSchema>;
+
+export const updateTeamMemberSchema = z.object({
+  displayName: z.string().min(2).max(120),
+  role: workspaceRoleSchema.exclude(['OWNER']),
+  phone: z.string().min(5).max(30).optional(),
+});
+export type UpdateTeamMember = z.infer<typeof updateTeamMemberSchema>;
 
 export const teamInvitationResponseSchema = z.object({
   member: teamMemberSchema,

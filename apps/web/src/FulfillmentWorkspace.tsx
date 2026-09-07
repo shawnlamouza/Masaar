@@ -77,6 +77,8 @@ function DeliveryCommand({ role }: { role: Role }) {
   const [zoneId, setZoneId] = useState('zone_metn');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [deliveryFilter, setDeliveryFilter] = useState<'ALL' | FulfillmentSnapshot['deliveries'][number]['status']>('ALL');
+  const [deliverySort, setDeliverySort] = useState<'NEWEST' | 'OLDEST' | 'STATUS'>('NEWEST');
   async function reload() {
     const [next, nextOrders] = await Promise.all([getFulfillmentSnapshot(role), listOrders(role)]);
     setSnapshot(next);
@@ -108,6 +110,13 @@ function DeliveryCommand({ role }: { role: Role }) {
   const active = snapshot.deliveries.filter((item) =>
     ['ASSIGNED', 'IN_PROGRESS'].includes(item.status),
   );
+  const visibleDeliveries = [...snapshot.deliveries]
+    .filter((item) => deliveryFilter === 'ALL' || item.status === deliveryFilter)
+    .sort((a, b) => deliverySort === 'STATUS'
+      ? a.status.localeCompare(b.status)
+      : deliverySort === 'OLDEST'
+        ? a.updatedAt.localeCompare(b.updatedAt)
+        : b.updatedAt.localeCompare(a.updatedAt));
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
       <Hero
@@ -127,7 +136,7 @@ function DeliveryCommand({ role }: { role: Role }) {
           <SectionTitle
             kicker="Assignment console"
             title="Ready for dispatch"
-            detail="Choose who carries the parcel and which Lebanese fee zone applies."
+            detail="Only packed orders awaiting a carrier, plus failed orders eligible for a documented retry. Choose the responsible resource and Lebanese fee zone here."
           />
           <div className="mb-4 grid gap-3 rounded-2xl border border-line bg-white p-4 sm:grid-cols-2">
             <label className="text-xs font-bold text-ink-muted">
@@ -209,11 +218,26 @@ function DeliveryCommand({ role }: { role: Role }) {
         <section>
           <SectionTitle
             kicker="Live manifest"
-            title="What is moving now"
-            detail="Every card is a delivery case with its own immutable attempts."
+            title="Delivery cases and attempt history"
+            detail="This is not a second copy of the order: each card is its linked delivery record, showing assignment, cost, collection expectation and every attempt."
           />
+          <div className="mb-4 grid gap-2 rounded-2xl border border-line bg-white p-3 sm:grid-cols-2">
+            <select aria-label="Filter deliveries" value={deliveryFilter} onChange={(event) => setDeliveryFilter(event.target.value as typeof deliveryFilter)} className={inputClass}>
+              <option value="ALL">All delivery cases</option>
+              <option value="ASSIGNED">Assigned</option>
+              <option value="IN_PROGRESS">Out for delivery</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="FAILED">Failed</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+            <select aria-label="Sort deliveries" value={deliverySort} onChange={(event) => setDeliverySort(event.target.value as typeof deliverySort)} className={inputClass}>
+              <option value="NEWEST">Newest activity first</option>
+              <option value="OLDEST">Oldest activity first</option>
+              <option value="STATUS">Group by status</option>
+            </select>
+          </div>
           <div className="space-y-3">
-            {snapshot.deliveries.map((delivery) => (
+            {visibleDeliveries.map((delivery) => (
               <Card
                 key={delivery.id}
                 className={
@@ -993,9 +1017,12 @@ function DriverWorkspace({ role }: { role: Role }) {
                   </p>
                 </div>
                 {stop.delivery.status === 'ASSIGNED' ? (
-                  <Button className="mt-4 w-full" onClick={() => void begin(stop)}>
-                    Out for delivery <Truck className="size-4" />
-                  </Button>
+                  <div className="mt-4">
+                    <p className="mb-2 text-center text-xs font-semibold text-ink-muted">Currently assigned · press when you physically begin this trip</p>
+                    <Button className="w-full" onClick={() => void begin(stop)}>
+                      Start trip → mark Out for Delivery <Truck className="size-4" />
+                    </Button>
+                  </div>
                 ) : (
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <Button

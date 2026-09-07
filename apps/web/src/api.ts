@@ -41,6 +41,7 @@ import {
   type Notification,
   type RegisterBusiness,
   type TeamMember,
+  type UpdateTeamMember,
   type UpdateBusinessSettings,
   type ApprovePriceReview,
   type CommerceSummary,
@@ -254,6 +255,12 @@ export async function resetTeamMemberPassword(role: Role, email: string) {
   return requestJson('/api/admin/team/reset-password', role, {
     method: 'POST', body: JSON.stringify({ email }),
   }) as Promise<{ sent: boolean; temporaryPassword?: string }>;
+}
+
+export async function updateTeamMember(role: Role, email: string, input: UpdateTeamMember) {
+  return requestJson(`/api/admin/team/${encodeURIComponent(email)}`, role, {
+    method: 'PATCH', body: JSON.stringify(input),
+  });
 }
 
 export async function getExpansionSnapshot(role: Role): Promise<ExpansionSnapshot> {

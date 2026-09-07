@@ -5,6 +5,7 @@ import {
   AdminCreateUserCommand,
   AdminResetUserPasswordCommand,
   AdminSetUserPasswordCommand,
+  AdminUpdateUserAttributesCommand,
   CognitoIdentityProviderClient,
   ConfirmForgotPasswordCommand,
   ForgotPasswordCommand,
@@ -504,6 +505,30 @@ export async function resetMemberPassword(config: AppConfig, email: string) {
     }),
   );
   return { sent: true };
+}
+
+export async function updateMember(
+  config: AppConfig,
+  email: string,
+  input: { displayName: string; role: Exclude<Role, 'OWNER'>; phone?: string },
+) {
+  const normalized = email.trim().toLowerCase();
+  if (config.AUTH_MODE === 'dev') {
+    const match = findCredential(normalized);
+    if (!match) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
+    match.identity.displayName = input.displayName;
+    match.identity.role = input.role;
+    return;
+  }
+  await cognitoClient(config).send(new AdminUpdateUserAttributesCommand({
+    UserPoolId: config.COGNITO_USER_POOL_ID!,
+    Username: normalized,
+    UserAttributes: [
+      { Name: 'name', Value: input.displayName },
+      { Name: 'custom:role', Value: input.role },
+      ...(input.phone ? [{ Name: 'phone_number', Value: input.phone }] : []),
+    ],
+  }));
 }
 
 async function ensureDriverResource(fulfillment: FulfillmentRepository, session: Session) {

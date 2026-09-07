@@ -9,6 +9,7 @@ import {
   notificationSchema,
   roleSchema,
   updateBusinessSettingsSchema,
+  updateTeamMemberSchema,
 } from '@masaar/contracts';
 import { loadConfig, type AppConfig } from './config.js';
 import {
@@ -16,6 +17,7 @@ import {
   provisionMember,
   registerAuth,
   resetMemberPassword,
+  updateMember,
   requirePermission,
   requireSession,
 } from './auth.js';
@@ -97,13 +99,16 @@ export async function buildApp(options?: {
         role?: string;
         displayName?: string;
         phone?: string;
+        temporaryPassword?: string;
       };
       const role = roleSchema.safeParse(body.role);
       if (!body.email || !role.success || role.data === 'OWNER')
         return reply.badRequest('A valid email and non-owner role are required.');
       const displayName = body.displayName?.trim() || body.email.split('@')[0] || 'Invited user';
       const invitationId = `inv_${randomUUID()}`;
-      const temporaryPassword = `Masaar-${randomUUID().slice(0, 8)}`;
+      const temporaryPassword = body.temporaryPassword?.trim() || `Masaar-${randomUUID().slice(0, 8)}`;
+      if (temporaryPassword.length < 8)
+        return reply.badRequest('The starter password must contain at least 8 characters.');
       const { identity } = await provisionMember(config, {
         tenantId: request.session!.tenantId,
         displayName,
@@ -146,7 +151,7 @@ export async function buildApp(options?: {
           status: config.AUTH_MODE === 'cognito' ? 'INVITED' : 'ACTIVE',
           createdAt: identity.createdAt,
         },
-        ...(config.AUTH_MODE === 'dev' ? { temporaryPassword } : {}),
+        temporaryPassword,
         delivery: config.AUTH_MODE === 'cognito' ? 'EMAIL' : 'DEVELOPMENT',
       });
     },
@@ -175,6 +180,31 @@ export async function buildApp(options?: {
         after: { email, delivery: result.sent ? 'EMAIL' : 'DEVELOPMENT' },
       });
       return result;
+    },
+  );
+
+  app.patch(
+    '/api/admin/team/:email',
+    { preHandler: requirePermission('users:manage') },
+    async (request, reply) => {
+      const email = decodeURIComponent((request.params as { email: string }).email).toLowerCase();
+      const input = updateTeamMemberSchema.parse(request.body);
+      const member = (await listTeam(config, request.session!.tenantId)).find(
+        (item) => item.email.toLowerCase() === email,
+      );
+      if (!member) return reply.notFound('Team member not found in this business.');
+      if (member.role === 'OWNER') return reply.badRequest('The business owner role cannot be changed here.');
+      await updateMember(config, email, {
+        displayName: input.displayName,
+        role: input.role,
+        ...(input.phone ? { phone: input.phone } : {}),
+      });
+      await recordAudit(auditRepository, {
+        session: request.session!, action: 'membership.updated', entityType: 'teamMember',
+        entityId: member.id, correlationId: request.correlationId,
+        before: member, after: { ...member, ...input },
+      });
+      return { updated: true };
     },
   );
 

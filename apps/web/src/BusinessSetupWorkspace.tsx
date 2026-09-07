@@ -21,6 +21,7 @@ import {
   Truck,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 import {
   createDeliveryResource,
@@ -31,6 +32,7 @@ import {
   getTeam,
   inviteTeamMember,
   resetTeamMemberPassword,
+  updateTeamMember,
   updateDeliveryResource,
   updateDeliveryZone,
   updateBusinessSettings,
@@ -339,16 +341,30 @@ function TeamPanel({
     email: '',
     role: 'EMPLOYEE',
     phone: '',
+    temporaryPassword: '',
   });
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState('');
+  const [editingEmail, setEditingEmail] = useState('');
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     try {
+      if (editingEmail) {
+        await updateTeamMember(role, editingEmail, {
+          displayName: form.displayName,
+          role: form.role,
+          ...(form.phone ? { phone: form.phone } : {}),
+        });
+        setOpen(false);
+        setEditingEmail('');
+        setForm({ displayName: '', email: '', role: 'EMPLOYEE', phone: '', temporaryPassword: '' });
+        await onInvited('Team member details and permissions updated.');
+        return;
+      }
       const result = await inviteTeamMember(role, form);
       setOpen(false);
-      setForm({ displayName: '', email: '', role: 'EMPLOYEE', phone: '' });
+      setForm({ displayName: '', email: '', role: 'EMPLOYEE', phone: '', temporaryPassword: '' });
       await onInvited(
         result.temporaryPassword
           ? `${result.member.displayName} can sign in with temporary password ${result.temporaryPassword}.`
@@ -366,8 +382,8 @@ function TeamPanel({
           title="People and access"
           detail="Invite the person, choose the job, and Masaar exposes only the tools that job needs."
         />
-        <Button onClick={() => setOpen(!open)}>
-          <UserPlus className="size-4" /> Add person
+        <Button onClick={() => { setOpen(!open); if (open) setEditingEmail(''); }}>
+          {open ? <X className="size-4" /> : <UserPlus className="size-4" />} {open ? 'Close' : 'Add person'}
         </Button>
       </div>
       {open && (
@@ -389,11 +405,17 @@ function TeamPanel({
             <input
               required
               type="email"
+              disabled={Boolean(editingEmail)}
               className={field}
               value={form.email}
               onChange={(event) => setForm({ ...form, email: event.target.value })}
             />
           </label>
+          {!editingEmail && <label className="text-xs font-bold text-ink-muted sm:col-span-2">
+            Starter password
+            <input required minLength={8} type="password" className={field} value={form.temporaryPassword ?? ''} onChange={(event) => setForm({ ...form, temporaryPassword: event.target.value })} placeholder="At least 8 characters" />
+            <span className="mt-1 block font-normal">The user receives an email code and uses this starter password when activating the account.</span>
+          </label>}
           <label className="text-xs font-bold text-ink-muted">
             Role
             <select
@@ -418,7 +440,7 @@ function TeamPanel({
             />
           </label>
           <div className="sm:col-span-2 flex justify-end">
-            <Button disabled={busy}>Create access</Button>
+            <Button disabled={busy}>{editingEmail ? 'Save user changes' : 'Create access'}</Button>
           </div>
         </form>
       )}
@@ -433,6 +455,10 @@ function TeamPanel({
               <p className="truncate text-xs text-ink-muted">{member.email}</p>
             </div>
             <div className="ml-auto flex items-center gap-2 text-right">
+              {member.role !== 'OWNER' && <button type="button" title="Edit user" onClick={() => {
+                setEditingEmail(member.email); setOpen(true);
+                setForm({ displayName: member.displayName, email: member.email, role: member.role as Exclude<Role, 'OWNER'>, phone: '', temporaryPassword: '' });
+              }} className="grid size-9 place-items-center rounded-xl border border-border text-brand-navy transition hover:border-brand-teal hover:bg-brand-teal-soft"><Pencil className="size-4" /></button>}
               <button
                 type="button"
                 disabled={resetting === member.email}
