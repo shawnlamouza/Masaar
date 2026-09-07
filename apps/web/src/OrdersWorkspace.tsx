@@ -52,6 +52,7 @@ const COLUMNS: { status: OrderStatus; title: string; accent: string }[] = [
   { status: 'PACKED', title: 'Packed', accent: 'bg-success-strong' },
   { status: 'READY_FOR_DISPATCH', title: 'Ready', accent: 'bg-brand-navy' },
 ];
+const BOARD_STATUSES = new Set<OrderStatus>(COLUMNS.map((column) => column.status));
 
 const SOURCES: OrderSource[] = [
   'INSTAGRAM',
@@ -134,6 +135,7 @@ export function OrdersWorkspace({
   const canBulkAdvance = Boolean(
     sharedNext && selectedOrders.every((order) => nextBoardStatus(order.status) === sharedNext),
   );
+  const laterOrders = orders.filter((order) => !BOARD_STATUSES.has(order.status));
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -199,7 +201,7 @@ export function OrdersWorkspace({
           />
         </div>
         <span className="rounded-xl bg-brand-teal-soft px-3 py-2 text-xs font-bold text-brand-teal-deep">
-          {orders.length} visible
+          {orders.length} total orders
         </span>
         {selected.length > 0 && (
           <>
@@ -268,6 +270,7 @@ export function OrdersWorkspace({
           </div>
         </section>
       ) : (
+        <>
         <div className="mt-6 grid items-start gap-4 overflow-x-auto pb-4 lg:grid-cols-5">
           {COLUMNS.map((column) => {
             const items = orders.filter((order) => order.status === column.status);
@@ -314,6 +317,45 @@ export function OrdersWorkspace({
             );
           })}
         </div>
+        {laterOrders.length > 0 && (
+          <section className="mt-6 rounded-[24px] border border-border bg-white p-4 shadow-card sm:p-5">
+            <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[.16em] text-brand-gold">
+                  Delivery and history
+                </p>
+                <h2 className="font-display text-xl font-bold text-brand-navy">
+                  Every dispatched, completed and exception order
+                </h2>
+                <p className="mt-1 text-xs text-ink-muted">
+                  Assigned, out-for-delivery, delivered, failed, cancelled, returned and refunded records remain visible here.
+                </p>
+              </div>
+              <span className="w-fit rounded-xl bg-brand-navy px-3 py-2 text-xs font-bold text-white">
+                {laterOrders.length} records
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {laterOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  checked={selected.includes(order.id)}
+                  canWrite={canWrite}
+                  onCheck={() =>
+                    setSelected((current) =>
+                      current.includes(order.id)
+                        ? current.filter((id) => id !== order.id)
+                        : [...current, order.id],
+                    )
+                  }
+                  onOpen={() => setDetail(order)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+        </>
       )}
 
       {quickOpen && (
