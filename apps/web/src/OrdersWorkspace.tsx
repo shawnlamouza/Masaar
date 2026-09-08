@@ -6,6 +6,7 @@ import type {
   Order,
   OrderSource,
   OrderStatus,
+  PaymentMethod,
   Product,
   QuickOrder,
   Role,
@@ -91,6 +92,17 @@ const SOURCES: OrderSource[] = [
   'PHONE',
   'STORE',
 ];
+
+const PAYMENT_METHODS: PaymentMethod[] = ['CASH', 'WHISH', 'OMT', 'CARD', 'BANK', 'OTHER'];
+
+function paymentMethodLabel(method: PaymentMethod, fulfillmentMethod: FulfillmentMethod) {
+  if (method === 'CASH')
+    return fulfillmentMethod === 'DELIVERY' ? 'Cash on delivery' : 'Cash at counter';
+  if (method === 'BANK') return 'Bank transfer';
+  if (method === 'CARD') return 'Card';
+  if (method === 'OTHER') return 'Other / manual';
+  return method === 'WHISH' ? 'Whish Money' : 'OMT';
+}
 const FULFILLMENT_OPTIONS: {
   value: FulfillmentMethod;
   title: string;
@@ -669,7 +681,7 @@ function QuickOrderPanel({
   const [deliveryZoneId, setDeliveryZoneId] = useState('');
   const [discount, setDiscount] = useState('0');
   const [prepaid, setPrepaid] = useState('0');
-  const [payment, setPayment] = useState<'CASH' | 'WHISH'>('CASH');
+  const [payment, setPayment] = useState<PaymentMethod>('CASH');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [duplicateReason, setDuplicateReason] = useState('');
@@ -869,7 +881,7 @@ function QuickOrderPanel({
                   }
                   setName(customer.name);
                   setPhone(customer.phoneOriginal);
-                  setPayment(customer.preferredPaymentMethod === 'WHISH' ? 'WHISH' : 'CASH');
+                  setPayment(customer.preferredPaymentMethod);
                 }}
                 className="field"
               >
@@ -1036,14 +1048,19 @@ function QuickOrderPanel({
               <Field label="Payment method">
                 <select
                   value={payment}
-                  onChange={(e) => setPayment(e.target.value as 'CASH' | 'WHISH')}
+                  onChange={(e) => setPayment(e.target.value as PaymentMethod)}
                   className="field"
                 >
-                  <option value="CASH">
-                    {fulfillmentMethod === 'DELIVERY' ? 'Cash on delivery' : 'Cash at counter'}
-                  </option>
-                  <option value="WHISH">Whish</option>
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={method} value={method}>
+                      {paymentMethodLabel(method, fulfillmentMethod)}
+                    </option>
+                  ))}
                 </select>
+                <span className="mt-2 block text-[11px] leading-4 text-ink-muted">
+                  This records the expected channel. Enter an amount under “Already paid” only if
+                  the business has actually received it; otherwise Masaar keeps the balance due.
+                </span>
               </Field>
               <Field label="Internal note">
                 <input
