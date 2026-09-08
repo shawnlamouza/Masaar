@@ -84,7 +84,9 @@ function DeliveryCommand({ role }: { role: Role }) {
   const [zoneId, setZoneId] = useState('zone_metn');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
-  const [deliveryFilter, setDeliveryFilter] = useState<'ALL' | FulfillmentSnapshot['deliveries'][number]['status']>('ALL');
+  const [deliveryFilter, setDeliveryFilter] = useState<
+    'ALL' | FulfillmentSnapshot['deliveries'][number]['status']
+  >('ALL');
   const [deliverySort, setDeliverySort] = useState<'NEWEST' | 'OLDEST' | 'STATUS'>('NEWEST');
   async function reload() {
     const [next, nextOrders] = await Promise.all([getFulfillmentSnapshot(role), listOrders(role)]);
@@ -119,11 +121,13 @@ function DeliveryCommand({ role }: { role: Role }) {
   );
   const visibleDeliveries = [...snapshot.deliveries]
     .filter((item) => deliveryFilter === 'ALL' || item.status === deliveryFilter)
-    .sort((a, b) => deliverySort === 'STATUS'
-      ? a.status.localeCompare(b.status)
-      : deliverySort === 'OLDEST'
-        ? a.updatedAt.localeCompare(b.updatedAt)
-        : b.updatedAt.localeCompare(a.updatedAt));
+    .sort((a, b) =>
+      deliverySort === 'STATUS'
+        ? a.status.localeCompare(b.status)
+        : deliverySort === 'OLDEST'
+          ? a.updatedAt.localeCompare(b.updatedAt)
+          : b.updatedAt.localeCompare(a.updatedAt),
+    );
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
       <Hero
@@ -229,15 +233,26 @@ function DeliveryCommand({ role }: { role: Role }) {
             detail="This is not a second copy of the order: each card is its linked delivery record, showing assignment, cost, collection expectation and every attempt."
           />
           <div className="mb-4 grid gap-2 rounded-2xl border border-line bg-white p-3 sm:grid-cols-2">
-            <select aria-label="Filter deliveries" value={deliveryFilter} onChange={(event) => setDeliveryFilter(event.target.value as typeof deliveryFilter)} className={inputClass}>
+            <select
+              aria-label="Filter deliveries"
+              value={deliveryFilter}
+              onChange={(event) => setDeliveryFilter(event.target.value as typeof deliveryFilter)}
+              className={inputClass}
+            >
               <option value="ALL">All delivery cases ({snapshot.deliveries.length})</option>
               {DELIVERY_FILTERS.map((filter) => (
                 <option key={filter.value} value={filter.value}>
-                  {filter.label} ({snapshot.deliveries.filter((item) => item.status === filter.value).length})
+                  {filter.label} (
+                  {snapshot.deliveries.filter((item) => item.status === filter.value).length})
                 </option>
               ))}
             </select>
-            <select aria-label="Sort deliveries" value={deliverySort} onChange={(event) => setDeliverySort(event.target.value as typeof deliverySort)} className={inputClass}>
+            <select
+              aria-label="Sort deliveries"
+              value={deliverySort}
+              onChange={(event) => setDeliverySort(event.target.value as typeof deliverySort)}
+              className={inputClass}
+            >
               <option value="NEWEST">Newest activity first</option>
               <option value="OLDEST">Oldest activity first</option>
               <option value="STATUS">Group by status</option>
@@ -336,8 +351,10 @@ function MoneyCommand({ role }: { role: Role }) {
   const [snapshot, setSnapshot] = useState<FulfillmentSnapshot | null>(null);
   const [paymentOrder, setPaymentOrder] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('CASH');
+  const [entryType, setEntryType] = useState<'COLLECTION' | 'REFUND'>('COLLECTION');
   const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
+  const [refundConfirmed, setRefundConfirmed] = useState(false);
   const [paymentHolderId, setPaymentHolderId] = useState('usr_driver');
   const [reconciliationKey, setReconciliationKey] = useState('');
   const [returned, setReturned] = useState('');
@@ -353,8 +370,23 @@ function MoneyCommand({ role }: { role: Role }) {
   useEffect(() => {
     void reload();
   }, [role]);
+  useEffect(() => {
+    const options = (snapshot?.payments ?? []).filter((item) =>
+      entryType === 'REFUND'
+        ? item.collected.amountMinor - item.refunded.amountMinor > 0
+        : item.balance.amountMinor > 0,
+    );
+    if (!options.some((item) => item.orderId === paymentOrder))
+      setPaymentOrder(options[0]?.orderId ?? '');
+  }, [entryType, paymentOrder, snapshot]);
+  useEffect(() => setRefundConfirmed(false), [entryType, paymentOrder]);
   if (!snapshot) return <WorkspaceSkeleton />;
   const currentSnapshot = snapshot;
+  const paymentOptions = currentSnapshot.payments.filter((item) =>
+    entryType === 'REFUND'
+      ? item.collected.amountMinor - item.refunded.amountMinor > 0
+      : item.balance.amountMinor > 0,
+  );
   async function submitPayment(event: FormEvent) {
     event.preventDefault();
     const projection = currentSnapshot.payments.find((item) => item.orderId === paymentOrder);
@@ -363,7 +395,7 @@ function MoneyCommand({ role }: { role: Role }) {
     try {
       await recordPaymentEntry(role, {
         orderId: paymentOrder,
-        type: 'COLLECTION',
+        type: entryType,
         method,
         status: 'POSTED',
         amountMinor: inputToMinor(amount, projection.currency),
@@ -371,12 +403,21 @@ function MoneyCommand({ role }: { role: Role }) {
         reference,
         occurredAt: new Date().toISOString(),
         ...(method === 'CASH'
-          ? { holderId: holder?.id ?? 'business_cash', holderName: holder?.name ?? 'Business cash' }
+          ? entryType === 'REFUND'
+            ? { holderId: 'business_cash', holderName: 'Business cash register' }
+            : {
+                holderId: holder?.id ?? 'business_cash',
+                holderName: holder?.name ?? 'Business cash',
+              }
           : {}),
       });
       setAmount('');
       setReference('');
-      setMessage('Payment posted. Delivery status was not changed.');
+      setMessage(
+        entryType === 'REFUND'
+          ? 'Refund payout posted. Order delivery status was not changed.'
+          : 'Payment posted. Delivery status was not changed.',
+      );
       await reload();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Payment failed.');
@@ -477,8 +518,8 @@ function MoneyCommand({ role }: { role: Role }) {
         <Card>
           <SectionTitle
             kicker="Payment ledger"
-            title="External payment or correction"
-            detail="Use only when money arrived outside the normal driver-delivery flow."
+            title="External collection or refund"
+            detail="Use this only after money actually moved outside the normal driver-delivery or Returns flow. Refunds require owner or manager authority."
           />
           <form
             onSubmit={(event) => void submitPayment(event)}
@@ -491,12 +532,32 @@ function MoneyCommand({ role }: { role: Role }) {
                 value={paymentOrder}
                 onChange={(event) => setPaymentOrder(event.target.value)}
               >
-                {snapshot.payments.map((item) => (
+                {paymentOptions.length === 0 && <option value="">No eligible orders</option>}
+                {paymentOptions.map((item) => (
                   <option key={item.orderId} value={item.orderId}>
-                    {item.orderNumber} · {label(item.state)} · due{' '}
-                    {formatMoney(item.balance.amountMinor, item.currency)}
+                    {item.orderNumber} · {label(item.state)} ·{' '}
+                    {entryType === 'REFUND' ? 'refundable' : 'due'}{' '}
+                    {formatMoney(
+                      entryType === 'REFUND'
+                        ? item.collected.amountMinor - item.refunded.amountMinor
+                        : item.balance.amountMinor,
+                      item.currency,
+                    )}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-ink-muted">
+              Entry type
+              <select
+                className={`${inputClass} mt-1`}
+                value={entryType}
+                onChange={(event) => setEntryType(event.target.value as typeof entryType)}
+              >
+                <option value="COLLECTION">Money received</option>
+                {(role === 'OWNER' || role === 'MANAGER') && (
+                  <option value="REFUND">Refund already paid</option>
+                )}
               </select>
             </label>
             <label className="text-xs font-bold text-ink-muted">
@@ -514,7 +575,7 @@ function MoneyCommand({ role }: { role: Role }) {
               </select>
             </label>
             <label className="text-xs font-bold text-ink-muted">
-              Amount
+              {entryType === 'REFUND' ? 'Amount already refunded' : 'Amount received'}
               <input
                 required
                 min={
@@ -534,7 +595,7 @@ function MoneyCommand({ role }: { role: Role }) {
                 onChange={(event) => setAmount(event.target.value)}
               />
             </label>
-            {method === 'CASH' && (
+            {method === 'CASH' && entryType === 'COLLECTION' && (
               <label className="text-xs font-bold text-ink-muted sm:col-span-2">
                 Cash holder
                 <select
@@ -550,17 +611,48 @@ function MoneyCommand({ role }: { role: Role }) {
                 </select>
               </label>
             )}
+            {method === 'CASH' && entryType === 'REFUND' && (
+              <div className="rounded-xl bg-brand-gold-soft p-3 text-xs font-semibold text-brand-navy sm:col-span-2">
+                Cash refund source: Business cash register. Masaar will reduce register custody when
+                this payout is posted.
+              </div>
+            )}
             <label className="text-xs font-bold text-ink-muted sm:col-span-2">
               Reference or proof note
               <input
                 className={`${inputClass} mt-1`}
                 value={reference}
                 onChange={(event) => setReference(event.target.value)}
-                placeholder="Whish transaction, receipt or COD note"
+                placeholder={
+                  entryType === 'REFUND'
+                    ? 'Refund transaction or signed cash receipt'
+                    : 'Whish transaction, receipt or COD note'
+                }
               />
             </label>
-            <Button className="sm:col-span-2">
-              Add external payment <CheckCircle2 className="size-4" />
+            {entryType === 'REFUND' && (
+              <label className="flex items-start gap-3 rounded-xl border border-brand-gold/30 bg-brand-gold-soft/50 p-3 text-xs font-semibold leading-5 text-brand-navy sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 accent-brand-teal"
+                  checked={refundConfirmed}
+                  onChange={(event) => setRefundConfirmed(event.target.checked)}
+                />
+                I confirm this money has already been returned to the customer. Masaar records the
+                payout, not merely an intention to refund.
+              </label>
+            )}
+            <Button
+              disabled={
+                !paymentOrder ||
+                !amount ||
+                Number(amount) <= 0 ||
+                (entryType === 'REFUND' && !refundConfirmed)
+              }
+              className="sm:col-span-2"
+            >
+              {entryType === 'REFUND' ? 'Record paid refund' : 'Add external payment'}{' '}
+              <CheckCircle2 className="size-4" />
             </Button>
           </form>
         </Card>
@@ -1025,7 +1117,9 @@ function DriverWorkspace({ role }: { role: Role }) {
                 </div>
                 {stop.delivery.status === 'ASSIGNED' ? (
                   <div className="mt-4">
-                    <p className="mb-2 text-center text-xs font-semibold text-ink-muted">Currently assigned · press when you physically begin this trip</p>
+                    <p className="mb-2 text-center text-xs font-semibold text-ink-muted">
+                      Currently assigned · press when you physically begin this trip
+                    </p>
                     <Button className="w-full" onClick={() => void begin(stop)}>
                       Start trip → mark Out for Delivery <Truck className="size-4" />
                     </Button>

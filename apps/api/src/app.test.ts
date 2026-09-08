@@ -634,7 +634,7 @@ describe('Masaar API foundation', () => {
     expect(duplicate.statusCode).toBe(409);
     expect(duplicate.json().error).toBe('POSSIBLE_DUPLICATE');
     expect(illegal.statusCode).toBe(409);
-    expect(illegal.json().error).toBe('ILLEGAL_TRANSITION');
+    expect(illegal.json().error).toBe('ACTION_REQUIRED');
     await app.close();
   });
 
@@ -644,6 +644,14 @@ describe('Masaar API foundation', () => {
     const employee = { authorization: 'Bearer dev.employee', 'x-tenant-id': tenant };
     const driver = { authorization: 'Bearer dev.driver', 'x-tenant-id': tenant };
     const owner = { authorization: 'Bearer dev.owner', 'x-tenant-id': tenant };
+    const fakeAssignment = await app.inject({
+      method: 'POST',
+      url: '/api/orders/ord_demo_5/transition',
+      headers: employee,
+      payload: { status: 'ASSIGNED_TO_DELIVERY', reason: 'Tried to bypass dispatch' },
+    });
+    expect(fakeAssignment.statusCode).toBe(409);
+    expect(fakeAssignment.json().error).toBe('ACTION_REQUIRED');
     const assigned = await app.inject({
       method: 'POST',
       url: '/api/fulfillment/assignments',
@@ -690,6 +698,22 @@ describe('Masaar API foundation', () => {
       },
     });
     expect(delivered.statusCode).toBe(200);
+    const unauthorizedRefund = await app.inject({
+      method: 'POST',
+      url: '/api/payments',
+      headers: employee,
+      payload: {
+        orderId: 'ord_demo_5',
+        type: 'REFUND',
+        method: 'CASH',
+        status: 'POSTED',
+        amountMinor: 100,
+        currency: 'USD',
+        reference: 'Employee must not approve refunds',
+        occurredAt: '2026-08-23T10:30:00.000Z',
+      },
+    });
+    expect(unauthorizedRefund.statusCode).toBe(403);
     const snapshot = await app.inject({
       method: 'GET',
       url: '/api/fulfillment/snapshot',
@@ -815,9 +839,9 @@ describe('Masaar API foundation', () => {
 
     const cancelled = await app.inject({
       method: 'POST',
-      url: '/api/orders/ord_demo_1/transition',
+      url: '/api/orders/ord_demo_1/cancel',
       headers: employee,
-      payload: { status: 'CANCELLED', reason: 'Customer cancelled before preparation.' },
+      payload: { reason: 'Customer cancelled before preparation.' },
     });
     expect(cancelled.statusCode).toBe(200);
     const after = await app.inject({
@@ -939,6 +963,12 @@ describe('Masaar API foundation', () => {
       },
     });
     expect(received.json().status).toBe('RECEIVED');
+    const returnedOrder = await app.inject({
+      method: 'GET',
+      url: `/api/orders/${original.id}`,
+      headers: owner,
+    });
+    expect(returnedOrder.json().status).toBe('RETURNED');
     const resolved = await app.inject({
       method: 'POST',
       url: `/api/returns/${opened.json().id}/resolve`,
@@ -966,6 +996,84 @@ describe('Masaar API foundation', () => {
         .items.find((item: { variantId: string }) => item.variantId === 'var_linen_s_sand')
         .reserved,
     ).toBeGreaterThan(0);
+    await app.close();
+  });
+
+  it('marks a received return and a fully paid refund from real stock and payment actions', async () => {
+    const app = await buildApp({ config });
+    const tenant = 'tenant_phase6_full_refund';
+    const employee = { authorization: 'Bearer dev.employee', 'x-tenant-id': tenant };
+    const owner = { authorization: 'Bearer dev.owner', 'x-tenant-id': tenant };
+    const original = (
+      await app.inject({ method: 'GET', url: '/api/orders/ord_demo_6', headers: owner })
+    ).json();
+    const opened = await app.inject({
+      method: 'POST',
+      url: '/api/returns',
+      headers: employee,
+      payload: {
+        orderId: original.id,
+        type: 'RETURN',
+        reason: 'NOT_AS_EXPECTED',
+        customerRequestChannel: 'WHATSAPP',
+        customerRequestReference: 'Chat 2026-08-24 14:05',
+        note: 'Customer requested a full return.',
+        items: [{ orderLineId: original.items[0].id, quantity: 1 }],
+      },
+    });
+    expect(opened.statusCode).toBe(201);
+    const received = await app.inject({
+      method: 'POST',
+      url: `/api/returns/${opened.json().id}/receive`,
+      headers: employee,
+      payload: {
+        items: [
+          {
+            orderLineId: original.items[0].id,
+            condition: 'SELLABLE',
+            disposition: 'RESTOCK',
+          },
+        ],
+        note: 'Physical item received.',
+      },
+    });
+    expect(received.statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/api/orders/${original.id}`,
+          headers: owner,
+        })
+      ).json().status,
+    ).toBe('RETURNED');
+    const resolved = await app.inject({
+      method: 'POST',
+      url: `/api/returns/${opened.json().id}/resolve`,
+      headers: owner,
+      payload: {
+        refundAmountMinor: 3900,
+        refundDeliveryFee: true,
+        refundMethod: 'CASH',
+        refundReference: 'Signed cash refund receipt',
+      },
+    });
+    expect(resolved.statusCode).toBe(200);
+    const refundedOrder = await app.inject({
+      method: 'GET',
+      url: `/api/orders/${original.id}`,
+      headers: owner,
+    });
+    expect(refundedOrder.json().status).toBe('REFUNDED');
+    const fulfillment = await app.inject({
+      method: 'GET',
+      url: '/api/fulfillment/snapshot',
+      headers: owner,
+    });
+    expect(
+      fulfillment.json().payments.find((item: { orderId: string }) => item.orderId === original.id)
+        .state,
+    ).toBe('REFUNDED');
     await app.close();
   });
 });

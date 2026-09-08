@@ -165,6 +165,11 @@ export const transitionOrderSchema = z.object({
   reason: z.string().max(240).default(''),
 });
 
+export const cancelOrderSchema = z.object({
+  reason: z.string().min(5).max(240),
+});
+export type CancelOrder = z.infer<typeof cancelOrderSchema>;
+
 export const bulkTransitionSchema = z.object({
   orderIds: z.array(z.string().min(1)).min(1).max(50),
   status: orderStatusSchema,
@@ -204,5 +209,21 @@ export const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatu
   FAILED: ['ASSIGNED_TO_DELIVERY', 'CANCELLED', 'RETURNED'],
   CANCELLED: [],
   RETURNED: ['REFUNDED'],
+  REFUNDED: [],
+};
+
+/** Status changes that represent physical work a staff member may complete directly. */
+export const STAFF_ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
+  PENDING_CUSTOMER_CONFIRMATION: [],
+  CONFIRMED: ['PREPARING'],
+  PREPARING: ['PACKED'],
+  PACKED: ['READY_FOR_DISPATCH'],
+  READY_FOR_DISPATCH: [],
+  ASSIGNED_TO_DELIVERY: [],
+  OUT_FOR_DELIVERY: [],
+  DELIVERED: [],
+  FAILED: [],
+  CANCELLED: [],
+  RETURNED: [],
   REFUNDED: [],
 };

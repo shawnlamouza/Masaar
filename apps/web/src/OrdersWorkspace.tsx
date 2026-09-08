@@ -9,7 +9,7 @@ import type {
   QuickOrder,
   Role,
 } from '@masaar/contracts';
-import { ORDER_TRANSITIONS } from '@masaar/contracts';
+import { STAFF_ORDER_TRANSITIONS } from '@masaar/contracts';
 import { Button, Card, EmptyState, Skeleton, StatusBadge } from '@masaar/ui';
 import {
   AlertTriangle,
@@ -33,6 +33,7 @@ import {
   ApiError,
   addOrderNote,
   bulkTransitionOrders,
+  cancelOrder,
   copyOrderMessage,
   createOrder,
   getCommerceSnapshot,
@@ -67,7 +68,16 @@ const DELIVERY_AND_HISTORY_STATUSES: OrderStatus[] = [
   'RETURNED',
   'REFUNDED',
 ];
-const STAGE_GUIDE = ['Confirm', 'Prepare', 'Pack', 'Dispatch', 'Deliver', 'Settle'] as const;
+const STAGE_GUIDE = [
+  { label: 'Waiting on customer', owner: 'Order created' },
+  { label: 'Confirmed', owner: 'Customer action' },
+  { label: 'Preparing', owner: 'Team action' },
+  { label: 'Packed', owner: 'Team action' },
+  { label: 'Ready', owner: 'Team action' },
+  { label: 'Assigned', owner: 'Dispatch action' },
+  { label: 'Out for delivery', owner: 'Driver action' },
+  { label: 'Delivered', owner: 'Driver action' },
+] as const;
 
 const SOURCES: OrderSource[] = [
   'INSTAGRAM',
@@ -87,8 +97,28 @@ const money = (minor: number, currency: 'USD' | 'LBP') =>
   currency === 'USD' ? `$${(minor / 100).toFixed(2)}` : `${Math.round(minor).toLocaleString()} LBP`;
 const inputToMinor = (value: string, currency: 'USD' | 'LBP') =>
   currency === 'USD' ? Math.round(Number(value) * 100) : Math.round(Number(value));
-const nextBoardStatus = (status: OrderStatus) =>
-  status === 'PENDING_CUSTOMER_CONFIRMATION' ? undefined : ORDER_TRANSITIONS[status][0];
+const nextBoardStatus = (status: OrderStatus) => STAFF_ORDER_TRANSITIONS[status][0];
+const staffActionLabel = (status: OrderStatus) =>
+  status === 'CONFIRMED'
+    ? 'Start preparing'
+    : status === 'PREPARING'
+      ? 'Finish preparation → Packed'
+      : status === 'PACKED'
+        ? 'Finish packing → Ready for dispatch'
+        : '';
+const actionOwnedStatusHelp = (status: OrderStatus) => {
+  if (status === 'PENDING_CUSTOMER_CONFIRMATION')
+    return 'Waiting for the customer to submit the secure confirmation link; staff cannot confirm it for them.';
+  if (status === 'READY_FOR_DISPATCH')
+    return 'Choose a driver or delivery company and zone in Delivery; a successful assignment changes this status automatically.';
+  if (status === 'ASSIGNED_TO_DELIVERY')
+    return 'The assigned driver changes this to Out for Delivery when the physical trip begins.';
+  if (status === 'OUT_FOR_DELIVERY')
+    return 'The driver must record Delivered or Failed, including collection or failure details.';
+  if (status === 'DELIVERED' || status === 'FAILED')
+    return 'Any after-sales change must begin as a documented case in Returns & Exchanges.';
+  return 'This status is historical and cannot be changed from the Orders board.';
+};
 
 export function OrdersWorkspace({
   role,
@@ -157,13 +187,15 @@ export function OrdersWorkspace({
   const deliveryOrderCount = orders.filter((order) =>
     ['ASSIGNED_TO_DELIVERY', 'OUT_FOR_DELIVERY'].includes(order.status),
   ).length;
-  const visibleLaterOrders = [...laterOrders].filter(
-    (order) => historyStatus === 'ALL' || order.status === historyStatus,
-  ).sort((a, b) => historySort === 'STATUS'
-    ? a.status.localeCompare(b.status)
-    : historySort === 'OLDEST'
-      ? a.updatedAt.localeCompare(b.updatedAt)
-      : b.updatedAt.localeCompare(a.updatedAt));
+  const visibleLaterOrders = [...laterOrders]
+    .filter((order) => historyStatus === 'ALL' || order.status === historyStatus)
+    .sort((a, b) =>
+      historySort === 'STATUS'
+        ? a.status.localeCompare(b.status)
+        : historySort === 'OLDEST'
+          ? a.updatedAt.localeCompare(b.updatedAt)
+          : b.updatedAt.localeCompare(a.updatedAt),
+    );
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -215,12 +247,21 @@ export function OrdersWorkspace({
         </div>
         <div className="relative mt-4 flex items-center overflow-x-auto rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
           {STAGE_GUIDE.map((stage, index) => (
-            <div key={stage} className="flex min-w-fit flex-1 items-center">
+            <div key={stage.label} className="flex min-w-fit flex-1 items-center">
               <span className="grid size-7 place-items-center rounded-full border border-brand-teal/40 bg-brand-teal/15 text-[10px] font-extrabold text-brand-teal">
                 {index + 1}
               </span>
-              <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-white/75">{stage}</span>
-              {index < STAGE_GUIDE.length - 1 && <span className="mx-3 h-px min-w-5 flex-1 bg-gradient-to-r from-brand-teal/60 to-brand-gold/40" />}
+              <span className="ml-2">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-white/85">
+                  {stage.label}
+                </span>
+                <span className="block text-[8px] font-semibold text-brand-teal/80">
+                  {stage.owner}
+                </span>
+              </span>
+              {index < STAGE_GUIDE.length - 1 && (
+                <span className="mx-3 h-px min-w-5 flex-1 bg-gradient-to-r from-brand-teal/60 to-brand-gold/40" />
+              )}
             </div>
           ))}
         </div>
@@ -308,103 +349,119 @@ export function OrdersWorkspace({
         </section>
       ) : (
         <>
-        <div className="mt-6 grid items-start gap-4 overflow-x-auto pb-4 lg:grid-cols-5">
-          {COLUMNS.map((column) => {
-            const items = orders.filter((order) => order.status === column.status);
-            return (
-              <section
-                key={column.status}
-                className="min-w-[260px] rounded-2xl border border-border bg-[#eef3f5]/80 p-3"
-              >
-                <div className="mb-3 flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`size-2.5 rounded-full ${column.accent}`} />
-                    <h2 className="text-xs font-extrabold uppercase tracking-[.12em] text-brand-navy">
-                      {column.title}
-                    </h2>
+          <div className="mt-6 grid items-start gap-4 overflow-x-auto pb-4 lg:grid-cols-5">
+            {COLUMNS.map((column) => {
+              const items = orders.filter((order) => order.status === column.status);
+              return (
+                <section
+                  key={column.status}
+                  className="min-w-[260px] rounded-2xl border border-border bg-[#eef3f5]/80 p-3"
+                >
+                  <div className="mb-3 flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`size-2.5 rounded-full ${column.accent}`} />
+                      <h2 className="text-xs font-extrabold uppercase tracking-[.12em] text-brand-navy">
+                        {column.title}
+                      </h2>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-ink-muted">
+                      {items.length}
+                    </span>
                   </div>
-                  <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-ink-muted">
-                    {items.length}
+                  <div className="space-y-3">
+                    {items.map((order) => (
+                      <OrderCard
+                        key={order.id}
+                        order={order}
+                        checked={selected.includes(order.id)}
+                        canWrite={canWrite}
+                        onCheck={() =>
+                          setSelected((current) =>
+                            current.includes(order.id)
+                              ? current.filter((id) => id !== order.id)
+                              : [...current, order.id],
+                          )
+                        }
+                        onOpen={() => setDetail(order)}
+                      />
+                    ))}
+                    {items.length === 0 && (
+                      <div className="rounded-xl border border-dashed border-border bg-white/50 p-5 text-center text-xs text-ink-muted">
+                        No orders here
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+          {laterOrders.length > 0 && (
+            <section className="mt-6 rounded-[24px] border border-border bg-white p-4 shadow-card sm:p-5">
+              <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[.16em] text-brand-gold">
+                    Delivery and history
+                  </p>
+                  <h2 className="font-display text-xl font-bold text-brand-navy">
+                    Every dispatched, completed and exception order
+                  </h2>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    Assigned, out-for-delivery, delivered, failed, cancelled, returned and refunded
+                    records remain visible here.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    aria-label="Filter order history"
+                    value={historyStatus}
+                    onChange={(event) =>
+                      setHistoryStatus(event.target.value as 'ALL' | OrderStatus)
+                    }
+                    className="field min-h-10 py-2 text-xs"
+                  >
+                    <option value="ALL">All delivery and history ({laterOrders.length})</option>
+                    {DELIVERY_AND_HISTORY_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {formatStatus(status)} (
+                        {laterOrders.filter((order) => order.status === status).length})
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Sort order history"
+                    value={historySort}
+                    onChange={(event) => setHistorySort(event.target.value as typeof historySort)}
+                    className="field min-h-10 py-2 text-xs"
+                  >
+                    <option value="NEWEST">Newest activity first</option>
+                    <option value="OLDEST">Oldest activity first</option>
+                    <option value="STATUS">Group by status</option>
+                  </select>
+                  <span className="rounded-xl bg-brand-navy px-3 py-2.5 text-xs font-bold text-white">
+                    {visibleLaterOrders.length} shown
                   </span>
                 </div>
-                <div className="space-y-3">
-                  {items.map((order) => (
-                    <OrderCard
-                      key={order.id}
-                      order={order}
-                      checked={selected.includes(order.id)}
-                      canWrite={canWrite}
-                      onCheck={() =>
-                        setSelected((current) =>
-                          current.includes(order.id)
-                            ? current.filter((id) => id !== order.id)
-                            : [...current, order.id],
-                        )
-                      }
-                      onOpen={() => setDetail(order)}
-                    />
-                  ))}
-                  {items.length === 0 && (
-                    <div className="rounded-xl border border-dashed border-border bg-white/50 p-5 text-center text-xs text-ink-muted">
-                      No orders here
-                    </div>
-                  )}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-        {laterOrders.length > 0 && (
-          <section className="mt-6 rounded-[24px] border border-border bg-white p-4 shadow-card sm:p-5">
-            <div className="mb-4 flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[.16em] text-brand-gold">
-                  Delivery and history
-                </p>
-                <h2 className="font-display text-xl font-bold text-brand-navy">
-                  Every dispatched, completed and exception order
-                </h2>
-                <p className="mt-1 text-xs text-ink-muted">
-                  Assigned, out-for-delivery, delivered, failed, cancelled, returned and refunded records remain visible here.
-                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <select aria-label="Filter order history" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value as 'ALL' | OrderStatus)} className="field min-h-10 py-2 text-xs">
-                  <option value="ALL">All delivery and history ({laterOrders.length})</option>
-                  {DELIVERY_AND_HISTORY_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {formatStatus(status)} ({laterOrders.filter((order) => order.status === status).length})
-                    </option>
-                  ))}
-                </select>
-                <select aria-label="Sort order history" value={historySort} onChange={(event) => setHistorySort(event.target.value as typeof historySort)} className="field min-h-10 py-2 text-xs">
-                  <option value="NEWEST">Newest activity first</option>
-                  <option value="OLDEST">Oldest activity first</option>
-                  <option value="STATUS">Group by status</option>
-                </select>
-                <span className="rounded-xl bg-brand-navy px-3 py-2.5 text-xs font-bold text-white">{visibleLaterOrders.length} shown</span>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleLaterOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    checked={selected.includes(order.id)}
+                    canWrite={canWrite}
+                    onCheck={() =>
+                      setSelected((current) =>
+                        current.includes(order.id)
+                          ? current.filter((id) => id !== order.id)
+                          : [...current, order.id],
+                      )
+                    }
+                    onOpen={() => setDetail(order)}
+                  />
+                ))}
               </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleLaterOrders.map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  checked={selected.includes(order.id)}
-                  canWrite={canWrite}
-                  onCheck={() =>
-                    setSelected((current) =>
-                      current.includes(order.id)
-                        ? current.filter((id) => id !== order.id)
-                        : [...current, order.id],
-                    )
-                  }
-                  onOpen={() => setDetail(order)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
+            </section>
+          )}
         </>
       )}
 
@@ -465,7 +522,9 @@ function OrderCard({
         ? 'success'
         : 'info';
   return (
-    <article className={`clickable-surface group rounded-2xl border bg-white p-4 shadow-sm ${order.status === 'FAILED' || order.status === 'CANCELLED' ? 'border-danger-strong/25' : order.status === 'DELIVERED' ? 'border-success-strong/20' : order.status === 'REFUNDED' || order.status === 'RETURNED' ? 'border-brand-gold/35' : 'border-transparent'}`}>
+    <article
+      className={`clickable-surface group rounded-2xl border bg-white p-4 shadow-sm ${order.status === 'FAILED' || order.status === 'CANCELLED' ? 'border-danger-strong/25' : order.status === 'DELIVERED' ? 'border-success-strong/20' : order.status === 'REFUNDED' || order.status === 'RETURNED' ? 'border-brand-gold/35' : 'border-transparent'}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <button onClick={onOpen} className="group/open text-left">
           <span className="font-display text-sm font-bold text-brand-navy">
@@ -475,7 +534,7 @@ function OrderCard({
             {order.source}
           </span>
         </button>
-        {canWrite && (
+        {canWrite && nextBoardStatus(order.status) && (
           <button
             aria-label={`Select ${order.orderNumber}`}
             onClick={onCheck}
@@ -615,8 +674,16 @@ function QuickOrderPanel({
   }
 
   return (
-    <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm">
-      <section onMouseDown={(event) => event.stopPropagation()} className="h-full w-full max-w-2xl overflow-y-auto bg-white p-5 shadow-2xl md:p-8">
+    <div
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm"
+    >
+      <section
+        onMouseDown={(event) => event.stopPropagation()}
+        className="h-full w-full max-w-2xl overflow-y-auto bg-white p-5 shadow-2xl md:p-8"
+      >
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[.18em] text-brand-teal-deep">
@@ -954,7 +1021,17 @@ function OrderDetail({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const next = nextBoardStatus(order.status);
+  const canCancel = [
+    'PENDING_CUSTOMER_CONFIRMATION',
+    'CONFIRMED',
+    'PREPARING',
+    'PACKED',
+    'READY_FOR_DISPATCH',
+    'ASSIGNED_TO_DELIVERY',
+  ].includes(order.status);
   async function advance() {
     if (!next) return;
     setBusy(true);
@@ -969,6 +1046,17 @@ function OrderDetail({
     onUpdate(await addOrderNote(role, order.id, note));
     setNote('');
   }
+  async function confirmCancellation() {
+    if (cancelReason.trim().length < 5) return;
+    setBusy(true);
+    try {
+      onUpdate(await cancelOrder(role, order.id, cancelReason.trim()));
+      setCancelling(false);
+      setCancelReason('');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function copy(template: 'CONFIRMATION' | 'REMINDER' | 'STATUS') {
     const result = await copyOrderMessage(role, order.id, template);
     const copied = await copyText(result.text);
@@ -981,7 +1069,12 @@ function OrderDetail({
     window.setTimeout(() => setToast(''), 1800);
   }
   return (
-    <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm">
+    <div
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex justify-end bg-brand-navy/65 backdrop-blur-sm"
+    >
       <section className="h-full w-full max-w-xl overflow-y-auto bg-white shadow-2xl">
         <div className="sticky top-0 z-10 border-b border-border bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between">
@@ -1004,8 +1097,13 @@ function OrderDetail({
           </div>
           {canWrite && next && (
             <Button onClick={() => void advance()} disabled={busy} className="mt-4 w-full">
-              Move to {formatStatus(next)} <ArrowRight className="size-4" />
+              {staffActionLabel(order.status)} <ArrowRight className="size-4" />
             </Button>
+          )}
+          {canWrite && !next && !['CANCELLED', 'RETURNED', 'REFUNDED'].includes(order.status) && (
+            <p className="mt-4 rounded-xl border border-brand-teal/20 bg-brand-teal-soft/60 p-3 text-xs font-semibold leading-5 text-brand-teal-deep">
+              {actionOwnedStatusHelp(order.status)}
+            </p>
           )}
         </div>
         <div className="space-y-6 p-5">
@@ -1027,6 +1125,53 @@ function OrderDetail({
             />
             <Info icon={Instagram} label="Source" value={formatStatus(order.source)} />
           </div>
+          {canWrite && canCancel && (
+            <div className="rounded-2xl border border-danger-strong/15 bg-danger-soft/30 p-4">
+              {!cancelling ? (
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div>
+                    <p className="text-sm font-bold text-brand-navy">Need to cancel?</p>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      Cancellation requires a reason and releases reserved stock. Any collected
+                      money must still be refunded in Payments.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="border-danger-strong/25 text-danger-strong"
+                    onClick={() => setCancelling(true)}
+                  >
+                    Cancel order
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <label className="block text-xs font-bold text-brand-navy">
+                    Cancellation reason
+                    <textarea
+                      autoFocus
+                      value={cancelReason}
+                      onChange={(event) => setCancelReason(event.target.value)}
+                      className="field mt-1 min-h-20"
+                      placeholder="Example: Customer cancelled before dispatch"
+                    />
+                  </label>
+                  <div className="flex gap-2">
+                    <Button
+                      disabled={busy || cancelReason.trim().length < 5}
+                      className="bg-danger-strong hover:bg-danger-strong"
+                      onClick={() => void confirmCancellation()}
+                    >
+                      Confirm cancellation
+                    </Button>
+                    <Button variant="ghost" onClick={() => setCancelling(false)}>
+                      Keep order
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <Card className="shadow-none">
             <h3 className="font-display text-lg font-bold text-brand-navy">Items & money</h3>
             <div className="mt-3 space-y-3">

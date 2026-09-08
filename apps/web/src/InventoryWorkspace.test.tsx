@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
   getInventorySnapshot: vi.fn(),
   listOrders: vi.fn(),
   getCommerceSnapshot: vi.fn(),
+  getFulfillmentSnapshot: vi.fn(),
 }));
 
 vi.mock('./api', async () => {
@@ -54,6 +55,7 @@ vi.mock('./api', async () => {
     getInventorySnapshot: mocks.getInventorySnapshot,
     listOrders: mocks.listOrders,
     getCommerceSnapshot: mocks.getCommerceSnapshot,
+    getFulfillmentSnapshot: mocks.getFulfillmentSnapshot,
   };
 });
 
@@ -69,6 +71,7 @@ describe('Phase 6 inventory workspace', () => {
       fxSnapshots: [],
       priceReviews: [],
     });
+    mocks.getFulfillmentSnapshot.mockResolvedValue({ payments: [] });
   });
 
   it('shows employees operational stock truth without owner correction controls', async () => {

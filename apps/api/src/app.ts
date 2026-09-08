@@ -106,7 +106,8 @@ export async function buildApp(options?: {
         return reply.badRequest('A valid email and non-owner role are required.');
       const displayName = body.displayName?.trim() || body.email.split('@')[0] || 'Invited user';
       const invitationId = `inv_${randomUUID()}`;
-      const temporaryPassword = body.temporaryPassword?.trim() || `Masaar-${randomUUID().slice(0, 8)}`;
+      const temporaryPassword =
+        body.temporaryPassword?.trim() || `Masaar-${randomUUID().slice(0, 8)}`;
       if (temporaryPassword.length < 8)
         return reply.badRequest('The starter password must contain at least 8 characters.');
       const { identity } = await provisionMember(config, {
@@ -165,7 +166,9 @@ export async function buildApp(options?: {
     '/api/admin/team/reset-password',
     { preHandler: requirePermission('users:manage') },
     async (request, reply) => {
-      const email = String((request.body as { email?: unknown })?.email ?? '').trim().toLowerCase();
+      const email = String((request.body as { email?: unknown })?.email ?? '')
+        .trim()
+        .toLowerCase();
       const member = (await listTeam(config, request.session!.tenantId)).find(
         (item) => item.email.toLowerCase() === email,
       );
@@ -193,16 +196,21 @@ export async function buildApp(options?: {
         (item) => item.email.toLowerCase() === email,
       );
       if (!member) return reply.notFound('Team member not found in this business.');
-      if (member.role === 'OWNER') return reply.badRequest('The business owner role cannot be changed here.');
+      if (member.role === 'OWNER')
+        return reply.badRequest('The business owner role cannot be changed here.');
       await updateMember(config, email, {
         displayName: input.displayName,
         role: input.role,
         ...(input.phone ? { phone: input.phone } : {}),
       });
       await recordAudit(auditRepository, {
-        session: request.session!, action: 'membership.updated', entityType: 'teamMember',
-        entityId: member.id, correlationId: request.correlationId,
-        before: member, after: { ...member, ...input },
+        session: request.session!,
+        action: 'membership.updated',
+        entityType: 'teamMember',
+        entityId: member.id,
+        correlationId: request.correlationId,
+        before: member,
+        after: { ...member, ...input },
       });
       return { updated: true };
     },
@@ -282,16 +290,25 @@ export async function buildApp(options?: {
     const readIds = new Set(
       await notificationRepository.listReadIds(tenantId, request.session!.userId),
     );
-    const [products, orders, deliveries, resources, zones, custody, reconciliations] =
-      await Promise.all([
-        commerceRepository.listProducts(tenantId),
-        orderRepository.list(tenantId),
-        fulfillmentRepository.listDeliveries(tenantId),
-        fulfillmentRepository.listResources(tenantId),
-        fulfillmentRepository.listZones(tenantId),
-        fulfillmentRepository.listCustodyMovements(tenantId),
-        fulfillmentRepository.listReconciliations(tenantId),
-      ]);
+    const [
+      products,
+      orders,
+      deliveries,
+      resources,
+      zones,
+      custody,
+      reconciliations,
+      paymentEntries,
+    ] = await Promise.all([
+      commerceRepository.listProducts(tenantId),
+      orderRepository.list(tenantId),
+      fulfillmentRepository.listDeliveries(tenantId),
+      fulfillmentRepository.listResources(tenantId),
+      fulfillmentRepository.listZones(tenantId),
+      fulfillmentRepository.listCustodyMovements(tenantId),
+      fulfillmentRepository.listReconciliations(tenantId),
+      fulfillmentRepository.listPaymentEntries(tenantId),
+    ]);
     await synchronizeTenantInventory(tenantId, products, orders, inventoryRepository);
     const [inventoryMovements, returnCases] = await Promise.all([
       inventoryRepository.listMovements(tenantId),
@@ -398,6 +415,34 @@ export async function buildApp(options?: {
                 title: `${count} received return${count === 1 ? '' : 's'} need resolution`,
                 detail: 'Approve the refund or create the controlled replacement order.',
                 target: 'Returns' as const,
+              },
+            ]
+          : [];
+      })(),
+      ...(() => {
+        const count = orders.filter((order) => {
+          if (order.status !== 'CANCELLED') return false;
+          const netCollected = paymentEntries
+            .filter((entry) => entry.orderId === order.id && entry.status === 'POSTED')
+            .reduce(
+              (sum, entry) =>
+                sum +
+                (entry.type === 'COLLECTION'
+                  ? entry.amount.amountMinor
+                  : -entry.amount.amountMinor),
+              0,
+            );
+          return netCollected > 0;
+        }).length;
+        return count
+          ? [
+              {
+                id: 'cancelled-refunds-due',
+                severity: 'critical' as const,
+                title: `${count} cancelled order${count === 1 ? '' : 's'} still hold customer money`,
+                detail:
+                  'Record the actual refund payout in Payments; cancellation never pretends money was returned.',
+                target: 'Payments' as const,
               },
             ]
           : [];

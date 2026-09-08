@@ -27,6 +27,7 @@ import {
   synchronizeTenantInventory,
 } from './inventory-service.js';
 import type { OrderRepository } from './order-repository.js';
+import { applyCustomerRefund } from './customer-stats-service.js';
 
 const money = (amountMinor: number, currency: 'USD' | 'LBP'): Money => ({ amountMinor, currency });
 const variantLabel = (size?: string, color?: string) => [size, color].filter(Boolean).join(' · ');
@@ -322,6 +323,23 @@ export async function registerInventoryRoutes(
       if (!order) return reply.notFound('Order not found.');
       if (!['DELIVERED', 'FAILED', 'RETURNED'].includes(order.status))
         return reply.conflict('A return can begin only after delivery or a failed delivery.');
+      await synchronizeOrderInventory(
+        order,
+        await commerce.listProducts(order.tenantId),
+        inventory,
+        { userId: request.session!.userId, displayName: request.session!.displayName },
+      );
+      if (
+        order.status === 'FAILED' &&
+        (input.type !== 'RETURN' ||
+          order.items.some((line) => {
+            const requested = input.items.find((item) => item.orderLineId === line.id);
+            return !requested || requested.quantity !== line.quantity;
+          }))
+      )
+        return reply.conflict(
+          'A failed delivery return must receive the complete undelivered parcel. Exchanges begin after the parcel is received.',
+        );
       const existing = await inventory.listReturns(order.tenantId);
       const items = input.items.map((requested) => {
         const line = order.items.find((candidate) => candidate.id === requested.orderLineId);
@@ -360,12 +378,33 @@ export async function registerInventoryRoutes(
         type: input.type,
         status: 'OPEN',
         reason: input.reason,
+        customerRequestChannel: input.customerRequestChannel,
+        customerRequestReference: input.customerRequestReference,
         note: input.note,
         items,
         createdAt: new Date().toISOString(),
         createdBy: request.session!.userId,
       });
       await inventory.saveReturn(created);
+      const requestLoggedAt = new Date().toISOString();
+      await orders.save(
+        orderSchema.parse({
+          ...order,
+          updatedAt: requestLoggedAt,
+          timeline: [
+            ...order.timeline,
+            {
+              id: `evt_${randomUUID()}`,
+              actorType: 'USER',
+              actorId: request.session!.userId,
+              actorName: request.session!.displayName,
+              action: 'return.request_recorded',
+              message: `${input.type === 'EXCHANGE' ? 'Exchange' : 'Return'} request recorded from ${input.customerRequestChannel.toLowerCase()}${input.customerRequestReference ? ` (${input.customerRequestReference})` : ''}; order status stays unchanged until the item is physically received.`,
+              occurredAt: requestLoggedAt,
+            },
+          ],
+        }),
+      );
       await recordAudit(audit, {
         session: request.session!,
         action: 'return.opened',
@@ -388,6 +427,9 @@ export async function registerInventoryRoutes(
       if (!current) return reply.notFound('Return case not found.');
       if (current.status !== 'OPEN')
         return reply.conflict('This return was already received or closed.');
+      const original = await orders.get(tenantId, current.orderId);
+      if (!original) return reply.notFound('Original order not found.');
+      const undeliveredParcel = original.status === 'FAILED';
       const updatedItems = current.items.map((item) => {
         const received = input.items.find(
           (candidate) => candidate.orderLineId === item.orderLineId,
@@ -413,18 +455,21 @@ export async function registerInventoryRoutes(
           await addInventoryMovement(inventory, {
             ...base,
             type: current.type === 'EXCHANGE' ? 'EXCHANGE_IN' : 'CUSTOMER_RETURN',
-            onHandDelta: item.quantity,
-            reason: `Sellable item received for ${current.id}.`,
+            onHandDelta: undeliveredParcel ? 0 : item.quantity,
+            reason: undeliveredParcel
+              ? `Undelivered sellable item checked back in for ${current.id}; existing on-hand stock was preserved.`
+              : `Sellable item received for ${current.id}.`,
             idempotencyKey: `return:${current.id}:${item.orderLineId}:in`,
           });
         if (item.disposition === 'RETURN_TO_SUPPLIER') {
-          await addInventoryMovement(inventory, {
-            ...base,
-            type: 'CUSTOMER_RETURN',
-            onHandDelta: item.quantity,
-            reason: `Item received before supplier return for ${current.id}.`,
-            idempotencyKey: `return:${current.id}:${item.orderLineId}:in`,
-          });
+          if (!undeliveredParcel)
+            await addInventoryMovement(inventory, {
+              ...base,
+              type: 'CUSTOMER_RETURN',
+              onHandDelta: item.quantity,
+              reason: `Item received before supplier return for ${current.id}.`,
+              idempotencyKey: `return:${current.id}:${item.orderLineId}:in`,
+            });
           await addInventoryMovement(inventory, {
             ...base,
             type: 'SUPPLIER_RETURN',
@@ -437,20 +482,58 @@ export async function registerInventoryRoutes(
           await addInventoryMovement(inventory, {
             ...base,
             type: 'DAMAGE',
-            onHandDelta: 0,
+            onHandDelta: undeliveredParcel ? -item.quantity : 0,
             reason: `${item.condition} item kept outside sellable stock for ${current.id}.`,
             idempotencyKey: `return:${current.id}:${item.orderLineId}:non-sellable`,
           });
       }
+      const receivedAt = new Date().toISOString();
       const received = returnCaseSchema.parse({
         ...current,
         items: updatedItems,
         note: [current.note, input.note].filter(Boolean).join(' · '),
         status: 'RECEIVED',
-        receivedAt: new Date().toISOString(),
+        receivedAt,
         receivedBy: request.session!.userId,
       });
       await inventory.saveReturn(received);
+      if (original && ['DELIVERED', 'FAILED'].includes(original.status)) {
+        const returnedOrder = orderSchema.parse({
+          ...original,
+          status: 'RETURNED',
+          updatedAt: receivedAt,
+          timeline: [
+            ...original.timeline,
+            {
+              id: `evt_${randomUUID()}`,
+              actorType: 'USER',
+              actorId: request.session!.userId,
+              actorName: request.session!.displayName,
+              action: 'return.received',
+              message: `Physical items received and inspected in return case ${current.id}; stock disposition was recorded separately.`,
+              fromStatus: original.status,
+              toStatus: 'RETURNED',
+              occurredAt: receivedAt,
+            },
+          ],
+        });
+        await synchronizeOrderInventory(
+          returnedOrder,
+          await commerce.listProducts(tenantId),
+          inventory,
+          { userId: request.session!.userId, displayName: request.session!.displayName },
+        );
+        await orders.save(returnedOrder);
+        await recordAudit(audit, {
+          session: request.session!,
+          action: 'order.returned',
+          entityType: 'order',
+          entityId: original.id,
+          correlationId: request.correlationId,
+          before: { status: original.status },
+          after: { status: returnedOrder.status, returnCaseId: current.id },
+        });
+      }
       await recordAudit(audit, {
         session: request.session!,
         action: 'return.received',
@@ -482,8 +565,21 @@ export async function registerInventoryRoutes(
         (sum, item) => sum + item.unitPrice.amountMinor * item.quantity,
         0,
       );
-      if (input.refundAmountMinor > returnValue)
-        return reply.badRequest('Refund cannot exceed the value of the returned items.');
+      const paymentEntries = (await fulfillment.listPaymentEntries(tenantId)).filter(
+        (entry) => entry.orderId === original.id && entry.status === 'POSTED',
+      );
+      const netCollected = paymentEntries.reduce(
+        (sum, entry) =>
+          sum +
+          (entry.type === 'COLLECTION' ? entry.amount.amountMinor : -entry.amount.amountMinor),
+        0,
+      );
+      const allowedRefundValue =
+        returnValue + (input.refundDeliveryFee ? original.totals.deliveryFee.amountMinor : 0);
+      if (input.refundAmountMinor > allowedRefundValue)
+        return reply.badRequest(
+          'Refund cannot exceed the returned item value plus an explicitly approved delivery-fee refund.',
+        );
       if (input.refundAmountMinor > 0 && !input.refundMethod)
         return reply.badRequest('Choose how the refund was paid.');
       let replacementOrderId: string | undefined;
@@ -567,15 +663,7 @@ export async function registerInventoryRoutes(
         replacementOrderId = replacement.id;
       }
       if (input.refundAmountMinor > 0) {
-        const paid = (await fulfillment.listPaymentEntries(tenantId))
-          .filter((entry) => entry.orderId === original.id && entry.status === 'POSTED')
-          .reduce(
-            (sum, entry) =>
-              sum +
-              (entry.type === 'COLLECTION' ? entry.amount.amountMinor : -entry.amount.amountMinor),
-            0,
-          );
-        if (input.refundAmountMinor > paid)
+        if (input.refundAmountMinor > netCollected)
           return reply.badRequest('Refund cannot exceed the amount actually collected.');
         const timestamp = new Date().toISOString();
         const payment = paymentEntrySchema.parse({
@@ -612,9 +700,7 @@ export async function registerInventoryRoutes(
             }),
           );
       }
-      const refundedFully =
-        input.refundAmountMinor > 0 &&
-        input.refundAmountMinor >= original.totals.grandTotal.amountMinor;
+      const refundedFully = input.refundAmountMinor > 0 && input.refundAmountMinor >= netCollected;
       const updatedOrder = orderSchema.parse({
         ...original,
         status: refundedFully ? 'REFUNDED' : 'RETURNED',
@@ -635,6 +721,7 @@ export async function registerInventoryRoutes(
         ],
       });
       await orders.save(updatedOrder);
+      await applyCustomerRefund(commerce, original, input.refundAmountMinor);
       const resolved = returnCaseSchema.parse({
         ...current,
         status: 'RESOLVED',

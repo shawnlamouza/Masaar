@@ -90,7 +90,7 @@ export async function synchronizeOrderInventory(
   const movements = await inventory.listMovements(order.tenantId);
   const balances = inventoryBalances(movements);
   const shouldReserve = reservingStatuses.includes(order.status);
-  const shouldSell = ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(order.status);
+  const shouldSell = ['DELIVERED', 'REFUNDED'].includes(order.status);
 
   for (const line of order.items) {
     const catalog = variants.get(line.variantId);
@@ -149,6 +149,26 @@ export async function synchronizeOrderInventory(
         sourceType: 'ORDER',
         sourceId: order.id,
         reason: `Released after ${order.orderNumber} was cancelled.`,
+        idempotencyKey: releaseKey,
+        createdBy: actor.userId,
+      });
+    }
+
+    if (order.status === 'RETURNED' && reserved && !released && !sold) {
+      await appendOnce(inventory, {
+        tenantId: order.tenantId,
+        productId: line.productId,
+        productName: line.productName,
+        variantId: line.variantId,
+        sku: line.sku,
+        type: 'RESERVATION_RELEASE',
+        quantity: line.quantity,
+        onHandDelta: 0,
+        reservedDelta: -line.quantity,
+        locationId: 'main',
+        sourceType: 'ORDER',
+        sourceId: order.id,
+        reason: `Released after undelivered parcel ${order.orderNumber} returned to the business.`,
         idempotencyKey: releaseKey,
         createdBy: actor.userId,
       });

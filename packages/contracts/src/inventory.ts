@@ -100,6 +100,10 @@ export const returnCaseSchema = z.object({
   type: z.enum(['RETURN', 'EXCHANGE']),
   status: z.enum(['OPEN', 'RECEIVED', 'RESOLVED', 'CANCELLED']),
   reason: returnReasonSchema,
+  customerRequestChannel: z
+    .enum(['WHATSAPP', 'INSTAGRAM', 'FACEBOOK', 'TIKTOK', 'PHONE', 'STORE', 'OTHER'])
+    .default('OTHER'),
+  customerRequestReference: z.string().max(180).default(''),
   note: z.string().max(500).default(''),
   items: z.array(returnCaseItemSchema).min(1),
   refundAmount: moneySchema.optional(),
@@ -164,6 +168,10 @@ export const createReturnCaseSchema = z.object({
   orderId: z.string().min(1),
   type: z.enum(['RETURN', 'EXCHANGE']),
   reason: returnReasonSchema,
+  customerRequestChannel: z
+    .enum(['WHATSAPP', 'INSTAGRAM', 'FACEBOOK', 'TIKTOK', 'PHONE', 'STORE', 'OTHER'])
+    .default('OTHER'),
+  customerRequestReference: z.string().max(180).default(''),
   note: z.string().max(500).default(''),
   items: z
     .array(
@@ -193,6 +201,7 @@ export type ReceiveReturnCase = z.infer<typeof receiveReturnCaseSchema>;
 
 export const resolveReturnCaseSchema = z.object({
   refundAmountMinor: z.number().int().nonnegative().default(0),
+  refundDeliveryFee: z.boolean().default(false),
   refundMethod: paymentPreferenceSchema.optional(),
   refundReference: z.string().max(120).default(''),
 });

@@ -116,8 +116,7 @@ const TOKENS: Partial<Record<Role, string>> = {
   DRIVER: 'dev.driver',
 };
 
-const DEV_AUTH_ENABLED =
-  import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test';
+const DEV_AUTH_ENABLED = import.meta.env.MODE === 'development' || import.meta.env.MODE === 'test';
 
 function headers(role: Role) {
   const accessToken = activeAuth?.accessToken ?? (DEV_AUTH_ENABLED ? TOKENS[role] : null);
@@ -166,11 +165,13 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   return signInResponseSchema.parse(value);
 }
 
-export type RegistrationResult = AuthSession | {
-  verificationRequired: true;
-  email: string;
-  message: string;
-};
+export type RegistrationResult =
+  | AuthSession
+  | {
+      verificationRequired: true;
+      email: string;
+      message: string;
+    };
 
 export async function registerBusiness(input: RegisterBusiness): Promise<RegistrationResult> {
   const response = await fetch('/api/auth/register-business', {
@@ -187,18 +188,22 @@ export async function registerBusiness(input: RegisterBusiness): Promise<Registr
 
 export async function requestPasswordReset(email: string) {
   const response = await fetch('/api/auth/forgot-password', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
   });
   if (!response.ok) throw new Error('Could not request a password reset.');
 }
 
 export async function confirmPasswordReset(email: string, code: string, newPassword: string) {
   const response = await fetch('/api/auth/confirm-password-reset', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, code, newPassword }),
   });
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(value.message ?? 'Password reset failed.', response.status, value);
+  if (!response.ok)
+    throw new ApiError(value.message ?? 'Password reset failed.', response.status, value);
 }
 
 async function getJson(path: string, role: Role) {
@@ -253,13 +258,15 @@ export async function inviteTeamMember(role: Role, input: InviteTeamMember) {
 
 export async function resetTeamMemberPassword(role: Role, email: string) {
   return requestJson('/api/admin/team/reset-password', role, {
-    method: 'POST', body: JSON.stringify({ email }),
+    method: 'POST',
+    body: JSON.stringify({ email }),
   }) as Promise<{ sent: boolean; temporaryPassword?: string }>;
 }
 
 export async function updateTeamMember(role: Role, email: string, input: UpdateTeamMember) {
   return requestJson(`/api/admin/team/${encodeURIComponent(email)}`, role, {
-    method: 'PATCH', body: JSON.stringify(input),
+    method: 'PATCH',
+    body: JSON.stringify(input),
   });
 }
 
@@ -457,6 +464,15 @@ export async function transitionOrder(
     await requestJson(`/api/orders/${id}/transition`, role, {
       method: 'POST',
       body: JSON.stringify({ status, reason }),
+    }),
+  );
+}
+
+export async function cancelOrder(role: Role, id: string, reason: string): Promise<Order> {
+  return orderSchema.parse(
+    await requestJson(`/api/orders/${id}/cancel`, role, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     }),
   );
 }

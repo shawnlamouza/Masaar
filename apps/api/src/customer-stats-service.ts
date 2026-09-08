@@ -39,3 +39,36 @@ export async function applyCustomerOrderTransition(
   });
   await commerce.saveCustomer(updated);
 }
+
+/** Keeps customer lifetime spend net of money actually refunded. */
+export async function applyCustomerRefund(
+  commerce: CommerceRepository,
+  order: Order,
+  refundMinor: number,
+) {
+  if (refundMinor <= 0) return;
+  const customer = (await commerce.listCustomers(order.tenantId)).find(
+    (candidate) =>
+      candidate.id === order.customerId || candidate.phoneNormalized === order.customerPhone,
+  );
+  if (!customer) return;
+  let refundUsdMinor = refundMinor;
+  if (order.currency === 'LBP') {
+    const fx = (await commerce.listFxSnapshots(order.tenantId))[0];
+    if (!fx) return;
+    refundUsdMinor = Math.round((refundMinor / fx.lbpPerUsd) * 100);
+  }
+  await commerce.saveCustomer(
+    customerSchema.parse({
+      ...customer,
+      orderStats: {
+        ...customer.orderStats,
+        lifetimeSpendUsdMinor: Math.max(
+          0,
+          customer.orderStats.lifetimeSpendUsdMinor - refundUsdMinor,
+        ),
+      },
+      updatedAt: new Date().toISOString(),
+    }),
+  );
+}

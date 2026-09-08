@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type {
   InventorySnapshot,
   InventoryStockItem,
+  FulfillmentSnapshot,
   Order,
   ReturnCase,
   Role,
@@ -30,6 +31,7 @@ import {
   adjustStock,
   createReturnCase,
   getCommerceSnapshot,
+  getFulfillmentSnapshot,
   getInventorySnapshot,
   listOrders,
   receiveReturnCase,
@@ -44,6 +46,7 @@ type WorkspaceData = {
   inventory: InventorySnapshot;
   orders: Order[];
   commerce: CommerceSnapshot;
+  fulfillment: FulfillmentSnapshot;
 };
 
 const field =
@@ -53,6 +56,10 @@ const formatMoney = (amountMinor: number, currency: 'USD' | 'LBP') =>
   currency === 'USD'
     ? `$${(amountMinor / 100).toFixed(2)}`
     : `${Math.round(amountMinor).toLocaleString()} LBP`;
+const moneyToInput = (amountMinor: number, currency: 'USD' | 'LBP') =>
+  currency === 'USD' ? (amountMinor / 100).toFixed(2) : String(Math.round(amountMinor));
+const inputToMoney = (value: string, currency: 'USD' | 'LBP') =>
+  currency === 'USD' ? Math.round(Number(value) * 100) : Math.round(Number(value));
 
 export function InventoryWorkspace({ view, role }: { view: InventoryView; role: Role }) {
   const [data, setData] = useState<WorkspaceData | null>(null);
@@ -62,9 +69,14 @@ export function InventoryWorkspace({ view, role }: { view: InventoryView; role: 
   useEffect(() => {
     let live = true;
     setError('');
-    Promise.all([getInventorySnapshot(role), listOrders(role), getCommerceSnapshot(role)])
-      .then(([inventory, orders, commerce]) => {
-        if (live) setData({ inventory, orders, commerce });
+    Promise.all([
+      getInventorySnapshot(role),
+      listOrders(role),
+      getCommerceSnapshot(role),
+      getFulfillmentSnapshot(role),
+    ])
+      .then(([inventory, orders, commerce, fulfillment]) => {
+        if (live) setData({ inventory, orders, commerce, fulfillment });
       })
       .catch((reason: unknown) => {
         if (live) setError(reason instanceof Error ? reason.message : 'Inventory could not load.');
@@ -395,6 +407,10 @@ function ReturnsControl({
                   <p className="mt-1 text-sm text-ink-muted">
                     {item.customerName} · {item.reason.replaceAll('_', ' ').toLowerCase()}
                   </p>
+                  <p className="mt-1 text-xs font-semibold text-brand-teal-deep">
+                    Customer request: {item.customerRequestChannel.toLowerCase()}
+                    {item.customerRequestReference ? ` · ${item.customerRequestReference}` : ''}
+                  </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {item.items.map((line) => (
                       <span
@@ -470,6 +486,13 @@ function ReturnsControl({
       {workingCase?.status === 'RECEIVED' && (
         <ResolveReturnDialog
           returnCase={workingCase}
+          originalOrder={data.orders.find((item) => item.id === workingCase.orderId)!}
+          {...(() => {
+            const payment = data.fulfillment.payments.find(
+              (item) => item.orderId === workingCase.orderId,
+            );
+            return payment ? { payment } : {};
+          })()}
           role={role}
           onClose={() => setWorkingCase(null)}
           onSaved={() => {
@@ -751,6 +774,10 @@ function CreateReturnDialog({
     | 'DELIVERY_FAILURE'
     | 'OTHER'
   >('WRONG_SIZE_OR_VARIANT');
+  const [requestChannel, setRequestChannel] = useState<
+    'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'TIKTOK' | 'PHONE' | 'STORE' | 'OTHER'
+  >('WHATSAPP');
+  const [requestReference, setRequestReference] = useState('');
   const [replacement, setReplacement] = useState(data.inventory.items[0]?.variantId ?? '');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -759,6 +786,12 @@ function CreateReturnDialog({
     () => setLineId(eligible.find((candidate) => candidate.id === orderId)?.items[0]?.id ?? ''),
     [orderId],
   );
+  useEffect(() => {
+    if (order?.status === 'FAILED') {
+      setType('RETURN');
+      setReason('DELIVERY_FAILURE');
+    }
+  }, [order?.status]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -766,16 +799,21 @@ function CreateReturnDialog({
     try {
       await createReturnCase(role, {
         orderId,
-        type,
-        reason,
+        type: order?.status === 'FAILED' ? 'RETURN' : type,
+        reason: order?.status === 'FAILED' ? 'DELIVERY_FAILURE' : reason,
+        customerRequestChannel: requestChannel,
+        customerRequestReference: requestReference,
         note,
-        items: [
-          {
-            orderLineId: lineId,
-            quantity,
-            ...(type === 'EXCHANGE' ? { replacementVariantId: replacement } : {}),
-          },
-        ],
+        items:
+          order?.status === 'FAILED'
+            ? order.items.map((line) => ({ orderLineId: line.id, quantity: line.quantity }))
+            : [
+                {
+                  orderLineId: lineId,
+                  quantity,
+                  ...(type === 'EXCHANGE' ? { replacementVariantId: replacement } : {}),
+                },
+              ],
       });
       onSaved();
     } catch (reasonValue) {
@@ -786,7 +824,7 @@ function CreateReturnDialog({
   return (
     <Dialog
       title="Start from the original order"
-      detail="This prevents duplicate refunds and returning more units than the customer bought."
+      detail="Record the customer's request from the original conversation. No second customer confirmation is needed because this case is evidence of the request; receipt and refund still require separate actions."
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
@@ -810,6 +848,7 @@ function CreateReturnDialog({
                 <select
                   className={field}
                   value={type}
+                  disabled={order?.status === 'FAILED'}
                   onChange={(e) => setType(e.target.value as 'RETURN' | 'EXCHANGE')}
                 >
                   <option value="RETURN">Return</option>
@@ -820,6 +859,7 @@ function CreateReturnDialog({
                 <select
                   className={field}
                   value={reason}
+                  disabled={order?.status === 'FAILED'}
                   onChange={(e) => setReason(e.target.value as typeof reason)}
                 >
                   <option value="WRONG_SIZE_OR_VARIANT">Wrong size or variant</option>
@@ -831,32 +871,65 @@ function CreateReturnDialog({
                 </select>
               </Label>
             </div>
-            <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
-              <Label text="Returned item">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Label text="Customer requested through">
                 <select
                   className={field}
-                  value={lineId}
-                  onChange={(e) => setLineId(e.target.value)}
+                  value={requestChannel}
+                  onChange={(e) => setRequestChannel(e.target.value as typeof requestChannel)}
                 >
-                  {order?.items.map((line) => (
-                    <option key={line.id} value={line.id}>
-                      {line.sku} · bought {line.quantity}
-                    </option>
-                  ))}
+                  <option value="WHATSAPP">WhatsApp</option>
+                  <option value="INSTAGRAM">Instagram</option>
+                  <option value="FACEBOOK">Facebook</option>
+                  <option value="TIKTOK">TikTok</option>
+                  <option value="PHONE">Phone</option>
+                  <option value="STORE">In store</option>
+                  <option value="OTHER">Other</option>
                 </select>
               </Label>
-              <Label text="Quantity">
+              <Label text="Message / ticket reference (optional)">
                 <input
                   className={field}
-                  type="number"
-                  min="1"
-                  max={order?.items.find((line) => line.id === lineId)?.quantity ?? 1}
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
+                  value={requestReference}
+                  onChange={(e) => setRequestReference(e.target.value)}
+                  placeholder="Chat date or support reference"
                 />
               </Label>
             </div>
-            {type === 'EXCHANGE' && (
+            {order?.status === 'FAILED' ? (
+              <div className="rounded-xl border border-brand-gold/30 bg-brand-gold-soft/50 p-4 text-xs leading-5 text-brand-navy">
+                <strong>Complete failed parcel:</strong>{' '}
+                {order.items.map((line) => `${line.quantity}× ${line.sku}`).join(', ')}. Masaar
+                receives the full parcel so reservations and physical stock cannot disagree.
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
+                <Label text="Returned item">
+                  <select
+                    className={field}
+                    value={lineId}
+                    onChange={(e) => setLineId(e.target.value)}
+                  >
+                    {order?.items.map((line) => (
+                      <option key={line.id} value={line.id}>
+                        {line.sku} · bought {line.quantity}
+                      </option>
+                    ))}
+                  </select>
+                </Label>
+                <Label text="Quantity">
+                  <input
+                    className={field}
+                    type="number"
+                    min="1"
+                    max={order?.items.find((line) => line.id === lineId)?.quantity ?? 1}
+                    value={quantity}
+                    onChange={(e) => setQuantity(Number(e.target.value))}
+                  />
+                </Label>
+              </div>
+            )}
+            {type === 'EXCHANGE' && order?.status !== 'FAILED' && (
               <Label text="Replacement variant">
                 <select
                   className={field}
@@ -989,11 +1062,15 @@ function ReceiveReturnDialog({
 
 function ResolveReturnDialog({
   returnCase,
+  originalOrder,
+  payment,
   role,
   onClose,
   onSaved,
 }: {
   returnCase: ReturnCase;
+  originalOrder: Order;
+  payment?: FulfillmentSnapshot['payments'][number];
   role: Role;
   onClose: () => void;
   onSaved: () => void;
@@ -1003,22 +1080,34 @@ function ResolveReturnDialog({
     0,
   );
   const currency = returnCase.items[0]?.unitPrice.currency ?? 'USD';
-  const [refund, setRefund] = useState(returnCase.type === 'RETURN' ? maximum : 0);
+  const [refundDeliveryFee, setRefundDeliveryFee] = useState(false);
+  const allowedRefundValue =
+    maximum + (refundDeliveryFee ? originalOrder.totals.deliveryFee.amountMinor : 0);
+  const refundable = payment
+    ? Math.max(0, payment.collected.amountMinor - payment.refunded.amountMinor)
+    : 0;
+  const maximumRefund = Math.min(allowedRefundValue, refundable);
+  const [refund, setRefund] = useState(
+    returnCase.type === 'RETURN' ? moneyToInput(maximumRefund, currency) : '0',
+  );
   const [method, setMethod] = useState<'CASH' | 'WHISH' | 'OMT' | 'CARD' | 'BANK' | 'OTHER'>(
     'CASH',
   );
   const [reference, setReference] = useState('Return approved');
+  const [paidConfirmed, setPaidConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const allowed = role === 'OWNER' || role === 'MANAGER';
+  const refundMinor = inputToMoney(refund, currency);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
     setError('');
     try {
       await resolveReturnCase(role, returnCase.id, {
-        refundAmountMinor: refund,
-        ...(refund > 0 ? { refundMethod: method } : {}),
+        refundAmountMinor: refundMinor,
+        refundDeliveryFee,
+        ...(refundMinor > 0 ? { refundMethod: method } : {}),
         refundReference: reference,
       });
       onSaved();
@@ -1035,24 +1124,40 @@ function ResolveReturnDialog({
       detail={
         returnCase.type === 'EXCHANGE'
           ? 'Masaar creates a linked confirmed replacement order, reserves its stock, and sends it through normal preparation and delivery.'
-          : 'Record only the money actually returned. Payment status remains separate from item receipt.'
+          : 'Enter only money already returned to the customer. Receiving an item marks it Returned; recording the actual payout updates the payment ledger and may mark it Refunded.'
       }
       onClose={onClose}
     >
       {allowed ? (
         <form onSubmit={submit} className="space-y-4">
           <div className="rounded-xl bg-brand-teal-soft p-3 text-sm text-brand-teal-deep">
-            Maximum returned item value: <strong>{formatMoney(maximum, currency)}</strong>
+            Returned item value: <strong>{formatMoney(maximum, currency)}</strong> · Actually
+            refundable from recorded payments:{' '}
+            <strong>{formatMoney(maximumRefund, currency)}</strong>
           </div>
+          {originalOrder.totals.deliveryFee.amountMinor > 0 && (
+            <label className="flex items-start gap-3 rounded-xl border border-border bg-surface-muted p-3 text-xs font-semibold leading-5 text-brand-navy">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-brand-teal"
+                checked={refundDeliveryFee}
+                onChange={(event) => setRefundDeliveryFee(event.target.checked)}
+              />
+              Also allow refunding the recorded delivery fee (
+              {formatMoney(originalOrder.totals.deliveryFee.amountMinor, currency)}). Leave
+              unchecked when delivery service remains non-refundable.
+            </label>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Label text="Refund amount">
               <input
                 className={field}
                 type="number"
                 min="0"
-                max={maximum}
+                max={moneyToInput(maximumRefund, currency)}
+                step={currency === 'USD' ? '0.01' : '1000'}
                 value={refund}
-                onChange={(e) => setRefund(Number(e.target.value))}
+                onChange={(e) => setRefund(e.target.value)}
               />
             </Label>
             <Label text="Refund method">
@@ -1060,7 +1165,7 @@ function ResolveReturnDialog({
                 className={field}
                 value={method}
                 onChange={(e) => setMethod(e.target.value as typeof method)}
-                disabled={refund === 0}
+                disabled={refundMinor === 0}
               >
                 <option value="CASH">Cash</option>
                 <option value="WHISH">Whish</option>
@@ -1078,13 +1183,35 @@ function ResolveReturnDialog({
               onChange={(e) => setReference(e.target.value)}
             />
           </Label>
+          {refundMinor > 0 && (
+            <label className="flex items-start gap-3 rounded-xl border border-brand-gold/30 bg-brand-gold-soft/50 p-3 text-xs font-semibold leading-5 text-brand-navy">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-brand-teal"
+                checked={paidConfirmed}
+                onChange={(event) => setPaidConfirmed(event.target.checked)}
+              />
+              I confirm this refund has actually been paid to the customer using the method above.
+              This action writes the payment and cash-custody ledger.
+            </label>
+          )}
           <FormError message={error} />
-          <Button disabled={saving}>
+          <Button
+            disabled={
+              saving ||
+              !Number.isFinite(refundMinor) ||
+              refundMinor < 0 ||
+              refundMinor > maximumRefund ||
+              (refundMinor > 0 && !paidConfirmed)
+            }
+          >
             {saving
               ? 'Resolving…'
               : returnCase.type === 'EXCHANGE'
                 ? 'Create replacement & resolve'
-                : 'Record refund & resolve'}
+                : refundMinor > 0
+                  ? 'Confirm paid refund & resolve'
+                  : 'Resolve without refund'}
           </Button>
         </form>
       ) : (

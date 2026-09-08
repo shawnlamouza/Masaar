@@ -696,6 +696,8 @@ export async function registerFulfillmentRoutes(
     { preHandler: requirePermission('payments:write') },
     async (request, reply) => {
       const input = recordPaymentSchema.parse(request.body);
+      if (input.type === 'REFUND' && !['OWNER', 'MANAGER'].includes(request.session!.role))
+        return reply.forbidden('Only an owner or manager can record a refund payout.');
       const order = await orders.get(request.session!.tenantId, input.orderId);
       if (!order) return reply.notFound('Order not found.');
       const projection = paymentProjection(

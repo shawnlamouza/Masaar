@@ -1,10 +1,11 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import {
-  ORDER_TRANSITIONS,
+  STAFF_ORDER_TRANSITIONS,
   addOrderNoteSchema,
   addressSchema,
   bulkTransitionSchema,
+  cancelOrderSchema,
   customerConfirmationSchema,
   customerSchema,
   messageTemplateRequestSchema,
@@ -330,12 +331,12 @@ export async function registerOrderRoutes(
           'One or more selected orders no longer exist. Refresh and try again.',
         );
       const invalid = candidates.find(
-        (order) => !ORDER_TRANSITIONS[order.status].includes(input.status),
+        (order) => !STAFF_ORDER_TRANSITIONS[order.status].includes(input.status),
       );
       if (invalid)
         return reply.code(409).send({
-          error: 'ILLEGAL_TRANSITION',
-          message: `${invalid.orderNumber} cannot move from ${invalid.status} to ${input.status}.`,
+          error: 'ACTION_REQUIRED',
+          message: `${invalid.orderNumber} cannot be moved from ${invalid.status} to ${input.status} manually. Complete the responsible customer, dispatch, driver, return or refund action instead.`,
         });
       for (const order of candidates) {
         const before = order.status;
@@ -400,10 +401,10 @@ export async function registerOrderRoutes(
         (request.params as { id: string }).id,
       );
       if (!order) return reply.notFound('Order not found.');
-      if (!ORDER_TRANSITIONS[order.status].includes(input.status))
+      if (!STAFF_ORDER_TRANSITIONS[order.status].includes(input.status))
         return reply.code(409).send({
-          error: 'ILLEGAL_TRANSITION',
-          message: `${order.orderNumber} cannot move from ${order.status} to ${input.status}.`,
+          error: 'ACTION_REQUIRED',
+          message: `${order.orderNumber} cannot be moved from ${order.status} to ${input.status} manually. Complete the responsible customer, dispatch, driver, return or refund action instead.`,
         });
       const updated = orderSchema.parse({
         ...order,
@@ -437,6 +438,76 @@ export async function registerOrderRoutes(
         reason: input.reason,
         before: { status: order.status },
         after: { status: updated.status },
+      });
+      return updated;
+    },
+  );
+
+  app.post(
+    '/api/orders/:id/cancel',
+    { preHandler: requirePermission('orders:write') },
+    async (request, reply) => {
+      const input = cancelOrderSchema.parse(request.body);
+      const tenantId = request.session!.tenantId;
+      const order = await orders.get(tenantId, (request.params as { id: string }).id);
+      if (!order) return reply.notFound('Order not found.');
+      if (
+        ![
+          'PENDING_CUSTOMER_CONFIRMATION',
+          'CONFIRMED',
+          'PREPARING',
+          'PACKED',
+          'READY_FOR_DISPATCH',
+          'ASSIGNED_TO_DELIVERY',
+        ].includes(order.status)
+      )
+        return reply.conflict(
+          'This order can no longer be cancelled here. An out-for-delivery stop must first be completed or failed; delivered items use Returns.',
+        );
+
+      const timestamp = new Date().toISOString();
+      const delivery = await fulfillment.getDeliveryForOrder(tenantId, order.id);
+      if (delivery) {
+        if (delivery.status !== 'ASSIGNED')
+          return reply.conflict('Only an assigned stop that has not started can be cancelled.');
+        await fulfillment.saveDelivery({
+          ...delivery,
+          status: 'CANCELLED',
+          updatedAt: timestamp,
+          version: delivery.version + 1,
+        });
+      }
+
+      const updated = orderSchema.parse({
+        ...order,
+        status: 'CANCELLED',
+        updatedAt: timestamp,
+        timeline: [
+          ...order.timeline,
+          timelineEvent(
+            { id: request.session!.userId, name: request.session!.displayName },
+            'order.cancelled',
+            `${input.reason}${order.totals.prepaid.amountMinor > 0 ? ' Any collected prepayment remains in the payment ledger until its refund is recorded.' : ''}`,
+            order.status,
+            'CANCELLED',
+          ),
+        ],
+      });
+      await synchronizeOrderInventory(updated, await commerce.listProducts(tenantId), inventory, {
+        userId: request.session!.userId,
+        displayName: request.session!.displayName,
+      });
+      await orders.save(updated);
+      await applyCustomerOrderTransition(commerce, order, updated);
+      await recordAudit(audit, {
+        session: request.session!,
+        action: 'order.cancelled',
+        entityType: 'order',
+        entityId: order.id,
+        correlationId: request.correlationId,
+        reason: input.reason,
+        before: { status: order.status },
+        after: { status: updated.status, deliveryCancelled: Boolean(delivery) },
       });
       return updated;
     },
