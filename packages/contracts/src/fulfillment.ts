@@ -122,6 +122,22 @@ export const assignDeliverySchema = z.object({
 });
 export type AssignDelivery = z.infer<typeof assignDeliverySchema>;
 
+export const completeCounterHandoverSchema = z.object({
+  orderId: z.string().min(1),
+  note: z.string().max(240).default(''),
+  allowOutstandingBalance: z.boolean().default(false),
+  payment: z
+    .object({
+      method: paymentPreferenceSchema,
+      amountMinor: z.number().int().nonnegative(),
+      currency: commerceCurrencySchema,
+      reference: z.string().max(120).default(''),
+      proofUrl: z.union([z.literal(''), z.string().url()]).optional(),
+    })
+    .optional(),
+});
+export type CompleteCounterHandover = z.infer<typeof completeCounterHandoverSchema>;
+
 export const paymentMethodSchema = paymentPreferenceSchema;
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 export const paymentEntrySchema = z.object({

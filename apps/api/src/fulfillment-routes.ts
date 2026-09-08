@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   approveReconciliationSchema,
   assignDeliverySchema,
+  completeCounterHandoverSchema,
   createReconciliationSchema,
   createDeliveryResourceSchema,
   createDeliveryZoneSchema,
@@ -209,7 +210,11 @@ async function recordPayment(
         id: `cash_${randomUUID()}`,
         tenantId: order.tenantId,
         paymentId: entry.id,
-        type: collection ? 'DRIVER_COLLECTION' : 'REFUND_PAYOUT',
+        type: collection
+          ? input.deliveryId
+            ? 'DRIVER_COLLECTION'
+            : 'CASH_COLLECTION'
+          : 'REFUND_PAYOUT',
         amount: entry.amount,
         ...(collection
           ? { toHolderId: entry.holderId, toHolderName: entry.holderName }
@@ -432,6 +437,8 @@ export async function registerFulfillmentRoutes(
         fulfillment.getDeliveryForOrder(tenantId, input.orderId),
       ]);
       if (!order) return reply.notFound('Order not found.');
+      if (order.fulfillmentMethod !== 'DELIVERY')
+        return reply.conflict('Pickup and in-store orders are completed at the fulfillment desk.');
       if (!order.deliveryAddress)
         return reply.badRequest('The customer must confirm a delivery address before assignment.');
       if (!['READY_FOR_DISPATCH', 'FAILED'].includes(order.status))
@@ -507,6 +514,103 @@ export async function registerFulfillmentRoutes(
         after: delivery,
       });
       return reply.code(201).send(delivery);
+    },
+  );
+
+  app.post(
+    '/api/fulfillment/counter-handover',
+    { preHandler: requirePermission('delivery:write') },
+    async (request, reply) => {
+      const input = completeCounterHandoverSchema.parse(request.body);
+      const tenantId = request.session!.tenantId;
+      const order = await orders.get(tenantId, input.orderId);
+      if (!order) return reply.notFound('Order not found.');
+      if (order.fulfillmentMethod === 'DELIVERY')
+        return reply.conflict(
+          'Delivery orders must be assigned and completed by the driver workflow.',
+        );
+      const allowed =
+        order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+          ? ['READY_FOR_DISPATCH']
+          : ['CONFIRMED', 'PREPARING', 'PACKED', 'READY_FOR_DISPATCH'];
+      if (!allowed.includes(order.status))
+        return reply.conflict(
+          order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+            ? 'A pickup can be handed over only after staff mark it ready.'
+            : 'This in-store sale has already been completed or closed.',
+        );
+      if (await fulfillment.getDeliveryForOrder(tenantId, order.id))
+        return reply.conflict(
+          'This order already has a delivery case and cannot use counter handover.',
+        );
+
+      const entries = await fulfillment.listPaymentEntries(tenantId);
+      const beforePayment = paymentProjection(order, entries);
+      const paymentMinor = input.payment?.amountMinor ?? 0;
+      if (input.payment && input.payment.currency !== order.currency)
+        return reply.badRequest('Payment currency must match the order currency.');
+      if (paymentMinor > beforePayment.balance.amountMinor)
+        return reply.badRequest('Collected amount cannot exceed the outstanding order balance.');
+      const remainingMinor = beforePayment.balance.amountMinor - paymentMinor;
+      if (remainingMinor > 0 && !input.allowOutstandingBalance)
+        return reply.conflict(
+          'The order still has an unpaid balance. Collect it or explicitly confirm that the balance remains receivable.',
+        );
+
+      const timestamp = now();
+      let payment: PaymentEntry | undefined;
+      if (input.payment && paymentMinor > 0) {
+        payment = await recordPayment(
+          fulfillment,
+          order,
+          request.session!.userId,
+          recordPaymentSchema.parse({
+            ...input.payment,
+            orderId: order.id,
+            type: 'COLLECTION',
+            status: 'POSTED',
+            holderId: input.payment.method === 'CASH' ? 'business_cash' : undefined,
+            holderName: input.payment.method === 'CASH' ? 'Business cash register' : undefined,
+            occurredAt: timestamp,
+          }),
+        );
+      }
+      const methodLabel =
+        order.fulfillmentMethod === 'CUSTOMER_PICKUP' ? 'Customer pickup' : 'In-store sale';
+      const remainingLabel =
+        order.currency === 'USD'
+          ? `$${(remainingMinor / 100).toFixed(2)}`
+          : `${remainingMinor.toLocaleString()} LBP`;
+      const updatedOrder = orderTimeline(
+        order,
+        request.session!,
+        'fulfillment.counter_handover',
+        `${methodLabel} handed to the customer by ${request.session!.displayName}.${remainingMinor > 0 ? ` ${remainingLabel} remains receivable.` : ' Payment is settled.'}${input.note ? ` ${input.note}` : ''}`,
+        'DELIVERED',
+      );
+      await synchronizeOrderInventory(
+        updatedOrder,
+        await commerce.listProducts(tenantId),
+        inventory,
+        { userId: request.session!.userId, displayName: request.session!.displayName },
+      );
+      await orders.save(updatedOrder);
+      await applyCustomerOrderTransition(commerce, order, updatedOrder);
+      await recordAudit(audit, {
+        session: request.session!,
+        action: 'fulfillment.counter_handover',
+        entityType: 'order',
+        entityId: order.id,
+        correlationId: request.correlationId,
+        before: { status: order.status },
+        after: {
+          status: updatedOrder.status,
+          fulfillmentMethod: order.fulfillmentMethod,
+          collectedMinor: paymentMinor,
+          outstandingMinor: remainingMinor,
+        },
+      });
+      return { order: updatedOrder, ...(payment ? { payment } : {}) };
     },
   );
 

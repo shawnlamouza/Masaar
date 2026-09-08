@@ -27,6 +27,19 @@ const formatMoney = (order: PublicOrder) =>
   order.totals.grandTotal.currency === 'USD'
     ? `$${(order.totals.grandTotal.amountMinor / 100).toFixed(2)}`
     : `${Math.round(order.totals.grandTotal.amountMinor).toLocaleString()} LBP`;
+const formatAmount = (amountMinor: number, currency: 'USD' | 'LBP') =>
+  currency === 'USD'
+    ? `$${(amountMinor / 100).toFixed(2)}`
+    : `${Math.round(amountMinor).toLocaleString()} LBP`;
+const publicStatus = (order: PublicOrder) => {
+  if (order.status === 'READY_FOR_DISPATCH' && order.fulfillmentMethod === 'CUSTOMER_PICKUP')
+    return 'ready for pickup';
+  if (order.status === 'DELIVERED' && order.fulfillmentMethod === 'CUSTOMER_PICKUP')
+    return 'collected';
+  if (order.status === 'DELIVERED' && order.fulfillmentMethod === 'IN_STORE')
+    return 'completed in store';
+  return order.status.toLowerCase().replaceAll('_', ' ');
+};
 
 export function CustomerConfirmationPage({ token }: { token: string }) {
   const [order, setOrder] = useState<PublicOrder | null>(null);
@@ -116,13 +129,19 @@ export function CustomerConfirmationPage({ token }: { token: string }) {
             />
             <div className="mt-auto pt-32">
               <p className="text-xs font-bold uppercase tracking-[.2em] text-brand-gold">
-                Customer confirmation
+                {order?.fulfillmentMethod === 'DELIVERY'
+                  ? 'Customer confirmation'
+                  : 'Customer order tracking'}
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold">
-                No account. No repeated chat copying.
+                {order?.fulfillmentMethod === 'DELIVERY'
+                  ? 'No account. No repeated chat copying.'
+                  : 'One secure view. No account needed.'}
               </h1>
               <p className="mt-3 text-sm leading-6 text-white/65">
-                Your details go directly into the business order, exactly where the team needs them.
+                {order?.fulfillmentMethod === 'DELIVERY'
+                  ? 'Your details go directly into the business order, exactly where the team needs them.'
+                  : 'Follow preparation and collection without creating a delivery record.'}
               </p>
               <div className="mt-5 flex items-center gap-2 text-xs text-brand-teal">
                 <ShieldCheck className="size-4" /> Secure, expiring order link
@@ -169,15 +188,18 @@ export function CustomerConfirmationPage({ token }: { token: string }) {
                             : 'info'
                       }
                     >
-                      {order.status.toLowerCase().replaceAll('_', ' ')}
+                      {publicStatus(order)}
                     </StatusBadge>
                     <p className="mt-3 font-display text-2xl font-bold text-brand-navy">
                       {formatMoney(order)}
                     </p>
                     <p className="text-xs text-ink-muted">
-                      {order.paymentMethod === 'CASH'
-                        ? 'Cash due according to order payment details'
-                        : order.paymentMethod}
+                      Payment: {order.paymentSummary.state.toLowerCase().replaceAll('_', ' ')} ·{' '}
+                      {formatAmount(
+                        order.paymentSummary.balance.amountMinor,
+                        order.paymentSummary.balance.currency,
+                      )}{' '}
+                      remaining
                     </p>
                   </div>
                   <button
@@ -187,7 +209,7 @@ export function CustomerConfirmationPage({ token }: { token: string }) {
                     <RefreshCw className="size-3.5 text-brand-teal-deep" /> Refresh
                   </button>
                 </div>
-                <TrackingRail status={order.status} />
+                <TrackingRail status={order.status} fulfillmentMethod={order.fulfillmentMethod} />
               </div>
             </div>
           ) : (
@@ -312,14 +334,35 @@ export function CustomerConfirmationPage({ token }: { token: string }) {
   );
 }
 
-function TrackingRail({ status }: { status: OrderStatus }) {
-  const steps: Array<{ label: string; statuses: OrderStatus[] }> = [
-    { label: 'Confirmed', statuses: ['CONFIRMED'] },
-    { label: 'Preparing', statuses: ['PREPARING', 'PACKED'] },
-    { label: 'Dispatch', statuses: ['READY_FOR_DISPATCH', 'ASSIGNED_TO_DELIVERY'] },
-    { label: 'On the way', statuses: ['OUT_FOR_DELIVERY'] },
-    { label: 'Delivered', statuses: ['DELIVERED'] },
-  ];
+function TrackingRail({
+  status,
+  fulfillmentMethod,
+}: {
+  status: OrderStatus;
+  fulfillmentMethod: PublicOrder['fulfillmentMethod'];
+}) {
+  const steps: Array<{ label: string; statuses: OrderStatus[] }> =
+    fulfillmentMethod === 'DELIVERY'
+      ? [
+          { label: 'Confirmed', statuses: ['CONFIRMED'] },
+          { label: 'Preparing', statuses: ['PREPARING', 'PACKED'] },
+          { label: 'Dispatch', statuses: ['READY_FOR_DISPATCH', 'ASSIGNED_TO_DELIVERY'] },
+          { label: 'On the way', statuses: ['OUT_FOR_DELIVERY'] },
+          { label: 'Delivered', statuses: ['DELIVERED'] },
+        ]
+      : fulfillmentMethod === 'CUSTOMER_PICKUP'
+        ? [
+            { label: 'Confirmed', statuses: ['CONFIRMED'] },
+            { label: 'Preparing', statuses: ['PREPARING'] },
+            { label: 'Packed', statuses: ['PACKED'] },
+            { label: 'Ready to collect', statuses: ['READY_FOR_DISPATCH'] },
+            { label: 'Collected', statuses: ['DELIVERED'] },
+          ]
+        : [
+            { label: 'Confirmed', statuses: ['CONFIRMED'] },
+            { label: 'Preparing', statuses: ['PREPARING', 'PACKED', 'READY_FOR_DISPATCH'] },
+            { label: 'Completed', statuses: ['DELIVERED'] },
+          ];
   const current = Math.max(
     0,
     steps.findIndex((step) => step.statuses.includes(status)),

@@ -22,6 +22,7 @@ import {
   Route,
   ShieldCheck,
   Smartphone,
+  ShoppingBag,
   Truck,
   WalletCards,
   WifiOff,
@@ -30,6 +31,7 @@ import {
 import {
   approveCashReconciliation,
   assignDelivery,
+  completeCounterHandover,
   createCashReconciliation,
   getDriverStops,
   getDriverWallet,
@@ -88,6 +90,11 @@ function DeliveryCommand({ role }: { role: Role }) {
     'ALL' | FulfillmentSnapshot['deliveries'][number]['status']
   >('ALL');
   const [deliverySort, setDeliverySort] = useState<'NEWEST' | 'OLDEST' | 'STATUS'>('NEWEST');
+  const [handoverId, setHandoverId] = useState('');
+  const [handoverMethod, setHandoverMethod] = useState<PaymentMethod>('CASH');
+  const [handoverAmount, setHandoverAmount] = useState('');
+  const [allowBalance, setAllowBalance] = useState(false);
+  const [handoverNote, setHandoverNote] = useState('');
   async function reload() {
     const [next, nextOrders] = await Promise.all([getFulfillmentSnapshot(role), listOrders(role)]);
     setSnapshot(next);
@@ -96,7 +103,17 @@ function DeliveryCommand({ role }: { role: Role }) {
   useEffect(() => {
     void reload();
   }, [role]);
-  const ready = orders.filter((order) => ['READY_FOR_DISPATCH', 'FAILED'].includes(order.status));
+  const ready = orders.filter(
+    (order) =>
+      order.fulfillmentMethod === 'DELIVERY' &&
+      ['READY_FOR_DISPATCH', 'FAILED'].includes(order.status),
+  );
+  const counterReady = orders.filter(
+    (order) =>
+      (order.fulfillmentMethod === 'CUSTOMER_PICKUP' && order.status === 'READY_FOR_DISPATCH') ||
+      (order.fulfillmentMethod === 'IN_STORE' &&
+        ['CONFIRMED', 'PREPARING', 'PACKED', 'READY_FOR_DISPATCH'].includes(order.status)),
+  );
   async function assign(orderId: string) {
     setBusy(orderId);
     setMessage('');
@@ -115,9 +132,58 @@ function DeliveryCommand({ role }: { role: Role }) {
       setBusy('');
     }
   }
+  function startHandover(orderId: string) {
+    const projection = snapshot?.payments.find((item) => item.orderId === orderId);
+    setHandoverId(orderId);
+    setHandoverAmount(
+      projection ? minorToInput(projection.balance.amountMinor, projection.currency) : '0',
+    );
+    setAllowBalance(false);
+    setHandoverNote('');
+  }
+  async function handover(orderId: string) {
+    const order = orders.find((item) => item.id === orderId);
+    const projection = snapshot?.payments.find((item) => item.orderId === orderId);
+    if (!order || !projection) return;
+    setBusy(orderId);
+    setMessage('');
+    try {
+      const amountMinor = inputToMinor(handoverAmount || '0', projection.currency);
+      await completeCounterHandover(role, {
+        orderId,
+        allowOutstandingBalance: allowBalance,
+        note: handoverNote,
+        ...(amountMinor > 0
+          ? {
+              payment: {
+                method: handoverMethod,
+                amountMinor,
+                currency: projection.currency,
+                reference:
+                  order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+                    ? 'Paid at customer pickup'
+                    : 'Paid at in-store checkout',
+              },
+            }
+          : {}),
+      });
+      setHandoverId('');
+      await reload();
+      setMessage(
+        `${order.fulfillmentMethod === 'CUSTOMER_PICKUP' ? 'Pickup' : 'In-store sale'} completed; inventory, payment, customer history and analytics were updated.`,
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Handover failed.');
+    } finally {
+      setBusy('');
+    }
+  }
   if (!snapshot) return <WorkspaceSkeleton />;
-  const active = snapshot.deliveries.filter((item) =>
-    ['ASSIGNED', 'IN_PROGRESS'].includes(item.status),
+  const active = snapshot.deliveries.filter(
+    (item) =>
+      ['ASSIGNED', 'IN_PROGRESS'].includes(item.status) ||
+      (item.status === 'FAILED' &&
+        orders.some((order) => order.id === item.orderId && order.status === 'FAILED')),
   );
   const visibleDeliveries = [...snapshot.deliveries]
     .filter((item) => deliveryFilter === 'ALL' || item.status === deliveryFilter)
@@ -132,16 +198,145 @@ function DeliveryCommand({ role }: { role: Role }) {
     <div className="mx-auto max-w-[1500px] space-y-6">
       <Hero
         eyebrow="Lebanese last-mile control"
-        title="Dispatch without losing the trail."
-        detail="Own drivers, freelancers and courier companies share one attempt history. A failed stop remains visible, keeps its reason, and can be reassigned without erasing what happened."
+        title="One fulfillment desk. Every way to sell."
+        detail="Deliver with a driver or courier, hand over a prepared pickup, or close an in-store sale. Each path updates the same inventory, payment, customer and intelligence records without inventing delivery activity."
         icon={Route}
         stats={[
-          `${active.length} active stops`,
+          `${active.length} active or retry stops`,
           `${snapshot.resources.length} delivery resources`,
           `${snapshot.zones.length} priced zones`,
         ]}
       />
       {message && <Notice text={message} />}
+      <section className="rounded-[26px] border border-brand-teal/20 bg-gradient-to-br from-white via-brand-teal-soft/35 to-white p-5 shadow-[0_18px_45px_rgba(0,44,62,.09)]">
+        <SectionTitle
+          kicker="Pickup & counter"
+          title="Complete sales without creating a delivery"
+          detail="Pickup orders appear here only when ready. In-store sales can close immediately because the customer is present. Payment and physical handover are confirmed together."
+        />
+        <div className="grid gap-3 lg:grid-cols-2">
+          {counterReady.length ? (
+            counterReady.map((order) => {
+              const projection = snapshot.payments.find((item) => item.orderId === order.id);
+              const open = handoverId === order.id;
+              return (
+                <Card key={order.id} className="relative overflow-hidden border-brand-teal/20">
+                  <div className="absolute -right-10 -top-10 size-28 rounded-full bg-brand-teal/10 blur-xl" />
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div className="flex gap-3">
+                      <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-brand-navy text-brand-gold shadow-lg">
+                        <ShoppingBag className="size-5" />
+                      </span>
+                      <div>
+                        <p className="font-display text-lg font-bold text-brand-navy">
+                          {order.orderNumber}
+                        </p>
+                        <p className="text-sm font-semibold text-brand-navy">
+                          {order.customerName}
+                        </p>
+                        <p className="mt-1 text-xs text-ink-muted">
+                          {order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+                            ? 'Customer pickup · ready now'
+                            : 'In-store checkout · customer present'}
+                        </p>
+                      </div>
+                    </div>
+                    <StatusBadge tone="success">
+                      {order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+                        ? 'Ready for pickup'
+                        : 'At counter'}
+                    </StatusBadge>
+                  </div>
+                  {!open ? (
+                    <Button className="mt-4 w-full" onClick={() => startHandover(order.id)}>
+                      Record payment & handover <ArrowRight className="size-4" />
+                    </Button>
+                  ) : (
+                    <div className="relative mt-4 space-y-3 rounded-2xl border border-brand-teal/20 bg-white/85 p-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs font-bold text-ink-muted">
+                          Payment method
+                          <select
+                            className={`${inputClass} mt-1`}
+                            value={handoverMethod}
+                            onChange={(event) =>
+                              setHandoverMethod(event.target.value as PaymentMethod)
+                            }
+                          >
+                            {METHODS.map((method) => (
+                              <option key={method} value={method}>
+                                {label(method)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-xs font-bold text-ink-muted">
+                          Amount collected ({order.currency})
+                          <input
+                            className={`${inputClass} mt-1`}
+                            type="number"
+                            min="0"
+                            max={
+                              projection
+                                ? minorToInput(projection.balance.amountMinor, projection.currency)
+                                : undefined
+                            }
+                            step={order.currency === 'USD' ? '0.01' : '1000'}
+                            value={handoverAmount}
+                            onChange={(event) => setHandoverAmount(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <label className="block text-xs font-bold text-ink-muted">
+                        Optional note
+                        <input
+                          className={`${inputClass} mt-1`}
+                          value={handoverNote}
+                          onChange={(event) => setHandoverNote(event.target.value)}
+                          placeholder="Receipt, pickup person, or account-sale note"
+                        />
+                      </label>
+                      {projection &&
+                        inputToMinor(handoverAmount || '0', projection.currency) <
+                          projection.balance.amountMinor && (
+                          <label className="flex items-start gap-2 rounded-xl bg-warning-soft p-3 text-xs font-semibold text-warning-strong">
+                            <input
+                              className="mt-0.5"
+                              type="checkbox"
+                              checked={allowBalance}
+                              onChange={(event) => setAllowBalance(event.target.checked)}
+                            />
+                            Hand over with an outstanding balance; keep the remainder visible as
+                            receivable.
+                          </label>
+                        )}
+                      <div className="flex gap-2">
+                        <Button
+                          disabled={busy === order.id}
+                          onClick={() => void handover(order.id)}
+                        >
+                          Confirm physical handover
+                        </Button>
+                        <Button variant="ghost" onClick={() => setHandoverId('')}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              );
+            })
+          ) : (
+            <div className="lg:col-span-2">
+              <EmptyState
+                icon={<ShoppingBag className="size-6" />}
+                title="No counter handovers waiting"
+                detail="Pickup and in-store orders appear automatically when they reach the correct point."
+              />
+            </div>
+          )}
+        </div>
+      </section>
       <div className="grid gap-6 xl:grid-cols-[1.12fr_.88fr]">
         <section>
           <SectionTitle

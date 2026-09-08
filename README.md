@@ -6,6 +6,8 @@ Masaar is a Lebanon-tailored operations and decision-intelligence platform for s
 
 The product captures what happens after a customer decides to order, protects delivery/payment/stock accountability, and converts those records into explainable owner actions.
 
+Each order can follow delivery, customer-pickup, or in-store fulfillment. Only delivery orders request an address and create driver/courier records; pickup and in-store handovers still update payment, cash custody, inventory, customer history, returns, and business intelligence from the same auditable order record.
+
 ## Current delivery status
 
 - Phase 1 complete: Product Contract, Metrics and Architecture
@@ -65,4 +67,4 @@ Email, WhatsApp, courier and payment provider APIs are not falsely presented as 
 
 ## Quality gates
 
-Run `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `pnpm build` before every release. The final local audit passed 55 automated tests, TypeScript checks, lint, a production build, and responsive owner/employee/driver browser workflows. Production configuration fails closed unless Cognito is enabled; development credentials and token fallback are restricted to loopback development/test environments. A public pilot additionally requires the SQL Server, Cognito, AWS, backup/restore, provider and URL gates in the release checklist.
+Run `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `pnpm build` before every release. The final local audit passed 59 automated tests, TypeScript checks, lint, a production build, and responsive owner/employee/driver browser workflows. Production configuration fails closed unless Cognito is enabled; development credentials and token fallback are restricted to loopback development/test environments. A public pilot additionally requires the SQL Server, Cognito, AWS, backup/restore, provider and URL gates in the release checklist.

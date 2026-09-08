@@ -70,8 +70,38 @@ function timelineEvent(
   };
 }
 
-function safeOrder(order: Order, businessName: string) {
-  return publicOrderSchema.parse({ ...order, businessName });
+async function safeOrder(order: Order, businessName: string, fulfillment: FulfillmentRepository) {
+  const entries = (await fulfillment.listPaymentEntries(order.tenantId)).filter(
+    (entry) => entry.orderId === order.id && entry.status === 'POSTED',
+  );
+  const collected = entries
+    .filter((entry) => entry.type === 'COLLECTION')
+    .reduce((sum, entry) => sum + entry.amount.amountMinor, 0);
+  const refunded = entries
+    .filter((entry) => entry.type === 'REFUND')
+    .reduce((sum, entry) => sum + entry.amount.amountMinor, 0);
+  const net = Math.max(0, collected - refunded);
+  const balance = Math.max(0, order.totals.grandTotal.amountMinor - net);
+  const state =
+    refunded >= collected && refunded > 0
+      ? 'REFUNDED'
+      : refunded > 0
+        ? 'PARTIALLY_REFUNDED'
+        : collected >= order.totals.grandTotal.amountMinor
+          ? 'PAID'
+          : collected > 0
+            ? 'PARTIALLY_PAID'
+            : 'PENDING';
+  return publicOrderSchema.parse({
+    ...order,
+    businessName,
+    paymentSummary: {
+      collected: money(collected, order.currency),
+      refunded: money(refunded, order.currency),
+      balance: money(balance, order.currency),
+      state,
+    },
+  });
 }
 
 function buildMessage(
@@ -126,10 +156,11 @@ export async function registerOrderRoutes(
       const input = quickOrderSchema.parse(request.body);
       const tenantId = request.session!.tenantId;
       const normalizedPhone = normalizeLebanesePhone(input.customerPhone);
-      const [products, existingOrders, zones] = await Promise.all([
+      const [products, existingOrders, zones, customers] = await Promise.all([
         commerce.listProducts(tenantId),
         orders.list(tenantId),
         fulfillment.listZones(tenantId),
+        commerce.listCustomers(tenantId),
       ]);
       await synchronizeTenantInventory(tenantId, products, existingOrders, inventory);
       const stock = inventoryBalances(await inventory.listMovements(tenantId));
@@ -153,16 +184,24 @@ export async function registerOrderRoutes(
         throw app.httpErrors.badRequest(
           'A single order cannot mix USD and LBP items. Create separate orders or align prices first.',
         );
-      const selectedZone = input.deliveryZoneId
-        ? zones.find((zone) => zone.id === input.deliveryZoneId && zone.active)
-        : undefined;
+      if (input.fulfillmentMethod !== 'DELIVERY' && input.deliveryZoneId)
+        throw app.httpErrors.badRequest('Pickup and in-store sales do not use a delivery zone.');
+      if (input.fulfillmentMethod !== 'DELIVERY' && input.deliveryFeeMinor > 0)
+        throw app.httpErrors.badRequest('Pickup and in-store sales cannot include a delivery fee.');
+      const selectedZone =
+        input.fulfillmentMethod === 'DELIVERY' && input.deliveryZoneId
+          ? zones.find((zone) => zone.id === input.deliveryZoneId && zone.active)
+          : undefined;
       if (input.deliveryZoneId && !selectedZone)
         throw app.httpErrors.badRequest('The selected delivery fee zone is unavailable.');
       if (selectedZone && selectedZone.customerFee.currency !== currency)
         throw app.httpErrors.badRequest(
           'The delivery fee zone currency must match the products in this order.',
         );
-      const deliveryFeeMinor = selectedZone?.customerFee.amountMinor ?? input.deliveryFeeMinor;
+      const deliveryFeeMinor =
+        input.fulfillmentMethod === 'DELIVERY'
+          ? (selectedZone?.customerFee.amountMinor ?? input.deliveryFeeMinor)
+          : 0;
 
       const recentDuplicate = existingOrders.find(
         (order) =>
@@ -211,15 +250,57 @@ export async function registerOrderRoutes(
       const grandTotal = subtotal - discount + deliveryFeeMinor;
       if (input.prepaidMinor > grandTotal)
         throw app.httpErrors.badRequest('Prepaid amount cannot exceed the order total.');
-      const token = randomBytes(32).toString('base64url');
-      const status: OrderStatus = 'PENDING_CUSTOMER_CONFIRMATION';
+      const token =
+        input.fulfillmentMethod === 'DELIVERY' ? randomBytes(32).toString('base64url') : '';
+      const status: OrderStatus =
+        input.fulfillmentMethod === 'DELIVERY' ? 'PENDING_CUSTOMER_CONFIRMATION' : 'CONFIRMED';
+      const directCustomer =
+        input.fulfillmentMethod === 'DELIVERY'
+          ? undefined
+          : (customers.find(
+              (candidate) =>
+                candidate.id === input.customerId || candidate.phoneNormalized === normalizedPhone,
+            ) ??
+            customerSchema.parse({
+              id: `cus_${randomUUID()}`,
+              tenantId,
+              name: input.customerName,
+              phoneOriginal: input.customerPhone,
+              phoneNormalized: normalizedPhone,
+              preferredPaymentMethod: input.paymentMethod,
+              addresses: [],
+              orderStats: {
+                completedOrders: 0,
+                cancelledOrders: 0,
+                failedDeliveries: 0,
+                lifetimeSpendUsdMinor: 0,
+                lastOrderAt: now.toISOString(),
+              },
+              tags: [],
+              notes: '',
+              createdAt: now.toISOString(),
+              updatedAt: now.toISOString(),
+            }));
+      if (directCustomer)
+        await commerce.saveCustomer(
+          customerSchema.parse({
+            ...directCustomer,
+            name: input.customerName,
+            phoneOriginal: input.customerPhone,
+            phoneNormalized: normalizedPhone,
+            preferredPaymentMethod: input.paymentMethod,
+            orderStats: { ...directCustomer.orderStats, lastOrderAt: now.toISOString() },
+            updatedAt: now.toISOString(),
+          }),
+        );
       const order = orderSchema.parse({
         id: `ord_${randomUUID()}`,
         tenantId,
         orderNumber: nextOrderNumber(existingOrders),
         source: input.source,
+        fulfillmentMethod: input.fulfillmentMethod,
         status,
-        customerId: input.customerId,
+        customerId: directCustomer?.id ?? input.customerId,
         customerName: input.customerName,
         customerPhone: normalizedPhone,
         deliveryNotes: '',
@@ -251,19 +332,26 @@ export async function registerOrderRoutes(
           timelineEvent(
             { id: request.session!.userId, name: request.session!.displayName },
             'order.created',
-            `Order captured from ${input.source.toLowerCase()}; totals calculated by Masaar.`,
+            input.fulfillmentMethod === 'DELIVERY'
+              ? `Delivery order captured from ${input.source.toLowerCase()}; customer confirmation is required.`
+              : `${input.fulfillmentMethod === 'CUSTOMER_PICKUP' ? 'Customer pickup' : 'In-store sale'} captured and confirmed by staff with the customer present.`,
             undefined,
             status,
           ),
         ],
         messages: [],
         confirmationExpiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        ...(input.fulfillmentMethod !== 'DELIVERY' ? { confirmedAt: now.toISOString() } : {}),
         duplicateOverrideReason: input.duplicateOverrideReason,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         createdBy: request.session!.userId,
       });
-      await orders.save(order, hashToken(token));
+      await synchronizeOrderInventory(order, products, inventory, {
+        userId: request.session!.userId,
+        displayName: request.session!.displayName,
+      });
+      await orders.save(order, token ? hashToken(token) : '');
       if (input.prepaidMinor > 0) {
         const payment = paymentEntrySchema.parse({
           id: `pay_${randomUUID()}`,
@@ -276,7 +364,9 @@ export async function registerOrderRoutes(
           amount: money(input.prepaidMinor, currency),
           reference: 'Prepaid during order capture',
           ...(input.paymentMethod === 'CASH'
-            ? { holderId: request.session!.userId, holderName: request.session!.displayName }
+            ? input.fulfillmentMethod === 'DELIVERY'
+              ? { holderId: request.session!.userId, holderName: request.session!.displayName }
+              : { holderId: 'business_cash', holderName: 'Business cash register' }
             : {}),
           occurredAt: now.toISOString(),
           createdAt: now.toISOString(),
@@ -291,11 +381,18 @@ export async function registerOrderRoutes(
               paymentId: payment.id,
               type: 'CASH_COLLECTION',
               amount: payment.amount,
-              toHolderId: request.session!.userId,
-              toHolderName: request.session!.displayName,
+              toHolderId:
+                input.fulfillmentMethod === 'DELIVERY' ? request.session!.userId : 'business_cash',
+              toHolderName:
+                input.fulfillmentMethod === 'DELIVERY'
+                  ? request.session!.displayName
+                  : 'Business cash register',
               occurredAt: now.toISOString(),
               actorId: request.session!.userId,
-              note: 'Cash prepayment recorded during order capture.',
+              note:
+                input.fulfillmentMethod === 'DELIVERY'
+                  ? 'Cash prepayment recorded during order capture.'
+                  : 'Counter cash recorded directly in the business register.',
             }),
           );
         }
@@ -311,8 +408,12 @@ export async function registerOrderRoutes(
       });
       return reply.code(201).send({
         order,
-        confirmationToken: token,
-        confirmationUrl: `${config.WEB_ORIGIN}/confirm/${token}`,
+        ...(token
+          ? {
+              confirmationToken: token,
+              confirmationUrl: `${config.WEB_ORIGIN}/confirm/${token}`,
+            }
+          : {}),
       });
     },
   );
@@ -589,6 +690,10 @@ export async function registerOrderRoutes(
         (request.params as { id: string }).id,
       );
       if (!order) return reply.notFound('Order not found.');
+      if (order.fulfillmentMethod !== 'DELIVERY' && input.template !== 'STATUS')
+        return reply.conflict(
+          'Pickup and in-store orders are confirmed by staff at capture and do not need a customer confirmation link.',
+        );
       const token = randomBytes(32).toString('base64url');
       const url = `${config.WEB_ORIGIN}/confirm/${token}`;
       const businessName =
@@ -631,7 +736,7 @@ export async function registerOrderRoutes(
         message: 'This confirmation link has expired. Ask the business for a new link.',
       });
     const businessName = (await settings.get(order.tenantId))?.businessName ?? 'Cedar & Thread';
-    return safeOrder(order, businessName);
+    return safeOrder(order, businessName, fulfillment);
   });
 
   app.post('/api/public/confirm/:token', async (request, reply) => {
@@ -639,12 +744,15 @@ export async function registerOrderRoutes(
     const input = customerConfirmationSchema.parse(request.body);
     const order = await orders.findByConfirmationHash(hashToken(token));
     if (!order) return reply.notFound('This confirmation link is invalid.');
+    if (order.fulfillmentMethod !== 'DELIVERY')
+      return reply.conflict('This order does not require delivery confirmation.');
     if (Date.parse(order.confirmationExpiresAt) < Date.now())
       return reply
         .code(410)
         .send({ error: 'LINK_EXPIRED', message: 'This confirmation link has expired.' });
     const businessName = (await settings.get(order.tenantId))?.businessName ?? 'Cedar & Thread';
-    if (order.status !== 'PENDING_CUSTOMER_CONFIRMATION') return safeOrder(order, businessName);
+    if (order.status !== 'PENDING_CUSTOMER_CONFIRMATION')
+      return safeOrder(order, businessName, fulfillment);
     const normalizedPhone = normalizeLebanesePhone(input.phone);
     const address = addressSchema.parse({
       id: `addr_${randomUUID()}`,
@@ -739,6 +847,6 @@ export async function registerOrderRoutes(
       { userId: customer.id, displayName: input.name },
     );
     await orders.save(updated);
-    return safeOrder(updated, businessName);
+    return safeOrder(updated, businessName, fulfillment);
   });
 }

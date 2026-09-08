@@ -35,6 +35,7 @@ import {
   type BusinessSettings,
   type CreateDeliveryResource,
   type CreateDeliveryZone,
+  type CompleteCounterHandover,
   type UpdateDeliveryResource,
   type UpdateDeliveryZone,
   type InviteTeamMember,
@@ -570,6 +571,17 @@ export async function assignDelivery(role: Role, input: AssignDelivery) {
       body: JSON.stringify(input),
     }),
   );
+}
+
+export async function completeCounterHandover(role: Role, input: CompleteCounterHandover) {
+  const value = (await requestJson('/api/fulfillment/counter-handover', role, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })) as { order: unknown; payment?: unknown };
+  return {
+    order: orderSchema.parse(value.order),
+    ...(value.payment ? { payment: paymentEntrySchema.parse(value.payment) } : {}),
+  };
 }
 
 export async function createDeliveryResource(role: Role, input: CreateDeliveryResource) {

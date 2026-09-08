@@ -227,6 +227,7 @@ export async function seedPersistentDemoHistory(repositories: Repositories) {
       tenantId,
       orderNumber,
       source: sources[index % sources.length]!,
+      fulfillmentMethod: 'DELIVERY',
       status: finalStatus,
       customerId: customer.id,
       customerName: customer.name,
@@ -517,6 +518,156 @@ export async function seedPersistentDemoHistory(repositories: Repositories) {
     created += 1;
   }
 
+  const counterExamples = [
+    {
+      id: 'ord_history_pickup_031',
+      number: 'MSR-H260902-031',
+      method: 'CUSTOMER_PICKUP' as const,
+      status: 'READY_FOR_DISPATCH' as const,
+      time: Date.parse('2026-09-02T12:00:00.000Z'),
+    },
+    {
+      id: 'ord_history_store_032',
+      number: 'MSR-H260902-032',
+      method: 'IN_STORE' as const,
+      status: 'DELIVERED' as const,
+      time: Date.parse('2026-09-02T13:00:00.000Z'),
+    },
+  ];
+  for (const [exampleIndex, example] of counterExamples.entries()) {
+    if (existingIds.has(example.id)) continue;
+    const customer = activeCustomers[exampleIndex]!;
+    const selected = variants[exampleIndex]!;
+    const total = selected.variant.currentSellingPrice.amountMinor;
+    const lineId = `${example.id}_line`;
+    const order: Order = {
+      id: example.id,
+      tenantId,
+      orderNumber: example.number,
+      source: example.method === 'IN_STORE' ? 'STORE' : 'WHATSAPP',
+      fulfillmentMethod: example.method,
+      status: example.status,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerPhone: customer.phoneNormalized,
+      deliveryNotes: '',
+      items: [
+        {
+          id: lineId,
+          productId: selected.product.id,
+          variantId: selected.variant.id,
+          productName: selected.product.name,
+          sku: selected.variant.sku,
+          variantLabel: [selected.variant.size, selected.variant.color].filter(Boolean).join(' · '),
+          quantity: 1,
+          unitPrice: selected.variant.currentSellingPrice,
+          unitCost: selected.variant.currentUnitCost,
+          lineTotal: usd(total),
+        },
+      ],
+      currency: 'USD',
+      totals: {
+        itemsSubtotal: usd(total),
+        discount: usd(0),
+        deliveryFee: usd(0),
+        grandTotal: usd(total),
+        prepaid: usd(0),
+        amountDue: usd(total),
+      },
+      paymentMethod: 'CASH',
+      tags: [example.method === 'IN_STORE' ? 'in-store' : 'pickup'],
+      notes: [],
+      messages: [],
+      timeline: [
+        {
+          id: `${example.id}_created`,
+          actorType: 'USER',
+          actorId: ownerId,
+          actorName: 'Joe',
+          action: 'order.created',
+          message:
+            example.method === 'IN_STORE'
+              ? 'In-store sale confirmed with the customer present.'
+              : 'Customer pickup confirmed in person; no delivery address required.',
+          toStatus: 'CONFIRMED',
+          occurredAt: iso(example.time),
+        },
+        ...(example.method === 'CUSTOMER_PICKUP'
+          ? [
+              {
+                id: `${example.id}_ready`,
+                actorType: 'USER' as const,
+                actorId: ownerId,
+                actorName: 'Joe',
+                action: 'order.status_changed',
+                message: 'Pickup prepared, packed and ready at the counter.',
+                fromStatus: 'PACKED' as const,
+                toStatus: 'READY_FOR_DISPATCH' as const,
+                occurredAt: iso(example.time + 60 * 60 * 1000),
+              },
+            ]
+          : [
+              {
+                id: `${example.id}_handover`,
+                actorType: 'USER' as const,
+                actorId: ownerId,
+                actorName: 'Joe',
+                action: 'fulfillment.counter_handover',
+                message: 'In-store payment and physical handover completed.',
+                fromStatus: 'CONFIRMED' as const,
+                toStatus: 'DELIVERED' as const,
+                occurredAt: iso(example.time + 10 * 60 * 1000),
+              },
+            ]),
+      ],
+      confirmationExpiresAt: iso(example.time + 30 * 86_400_000),
+      confirmedAt: iso(example.time),
+      createdAt: iso(example.time),
+      updatedAt: iso(example.time + 60 * 60 * 1000),
+      createdBy: ownerId,
+    };
+    await orders.save(order);
+    if (example.status === 'DELIVERED') {
+      await inventory.saveMovement({
+        id: `mov_${example.id}_sale`,
+        tenantId,
+        productId: selected.product.id,
+        productName: selected.product.name,
+        variantId: selected.variant.id,
+        sku: selected.variant.sku,
+        type: 'SALE',
+        quantity: 1,
+        onHandDelta: -1,
+        reservedDelta: 0,
+        locationId: 'main',
+        sourceType: 'ORDER',
+        sourceId: example.id,
+        reason: `Completed in-store sale ${example.number}`,
+        unitCost: selected.variant.currentUnitCost,
+        idempotencyKey: `history:${example.id}:sale`,
+        createdAt: iso(example.time + 10 * 60 * 1000),
+        createdBy: ownerId,
+      });
+      await fulfillment.savePaymentEntry({
+        id: `pay_${example.id}`,
+        tenantId,
+        orderId: example.id,
+        orderNumber: example.number,
+        type: 'COLLECTION',
+        method: 'CASH',
+        status: 'POSTED',
+        amount: usd(total),
+        reference: 'Counter receipt DEMO-032',
+        holderId: 'business_cash',
+        holderName: 'Business cash register',
+        occurredAt: iso(example.time + 10 * 60 * 1000),
+        createdAt: iso(example.time + 10 * 60 * 1000),
+        createdBy: ownerId,
+      });
+    }
+    created += 1;
+  }
+
   if (cashPayments.length) {
     const amount = cashPayments.reduce((sum, payment) => sum + payment.amount.amountMinor, 0);
     const closedAt = '2026-09-01T17:00:00.000Z';
@@ -574,5 +725,5 @@ export async function seedPersistentDemoHistory(repositories: Repositories) {
     await commerce.saveCustomer(updated);
   }
 
-  return { ok: true, created, totalPersistentHistory: 30 };
+  return { ok: true, created, totalPersistentHistory: 32 };
 }

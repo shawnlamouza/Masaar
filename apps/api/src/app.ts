@@ -329,7 +329,12 @@ export async function buildApp(options?: {
             },
           ]
         : []),
-      ...(resources.length === 0 || zones.length === 0
+      ...((resources.length === 0 || zones.length === 0) &&
+      orders.some(
+        (order) =>
+          order.fulfillmentMethod === 'DELIVERY' &&
+          !['DELIVERED', 'CANCELLED', 'RETURNED', 'REFUNDED'].includes(order.status),
+      )
         ? [
             {
               id: 'setup-delivery',
@@ -357,7 +362,10 @@ export async function buildApp(options?: {
           : [];
       })(),
       ...(() => {
-        const count = orders.filter((order) => order.status === 'READY_FOR_DISPATCH').length;
+        const count = orders.filter(
+          (order) =>
+            order.fulfillmentMethod === 'DELIVERY' && order.status === 'READY_FOR_DISPATCH',
+        ).length;
         return count
           ? [
               {
@@ -371,7 +379,32 @@ export async function buildApp(options?: {
           : [];
       })(),
       ...(() => {
-        const count = deliveries.filter((delivery) => delivery.status === 'FAILED').length;
+        const count = orders.filter(
+          (order) =>
+            (order.fulfillmentMethod === 'CUSTOMER_PICKUP' &&
+              order.status === 'READY_FOR_DISPATCH') ||
+            (order.fulfillmentMethod === 'IN_STORE' &&
+              ['CONFIRMED', 'PREPARING', 'PACKED', 'READY_FOR_DISPATCH'].includes(order.status)),
+        ).length;
+        return count
+          ? [
+              {
+                id: 'counter-handover-ready',
+                severity: 'info' as const,
+                title: `${count} counter handover${count === 1 ? '' : 's'} waiting`,
+                detail:
+                  'Record payment and physical handover in Fulfillment; no delivery case is created.',
+                target: 'Delivery' as const,
+              },
+            ]
+          : [];
+      })(),
+      ...(() => {
+        const count = deliveries.filter(
+          (delivery) =>
+            delivery.status === 'FAILED' &&
+            orders.some((order) => order.id === delivery.orderId && order.status === 'FAILED'),
+        ).length;
         return count
           ? [
               {

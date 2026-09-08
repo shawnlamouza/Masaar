@@ -14,7 +14,7 @@ describe('persistent demonstration history', () => {
       inventoryRepository: new InMemoryInventoryRepository(),
     };
 
-    await expect(seedPersistentDemoHistory(repositories)).resolves.toMatchObject({ created: 30 });
+    await expect(seedPersistentDemoHistory(repositories)).resolves.toMatchObject({ created: 32 });
     await expect(seedPersistentDemoHistory(repositories)).resolves.toMatchObject({ created: 0 });
 
     const tenantId = 'tenant_cedar_thread';
@@ -24,11 +24,22 @@ describe('persistent demonstration history', () => {
       'ord_history_022',
     );
     expect(unavailable).toMatchObject({ status: 'FAILED' });
+    await expect(
+      repositories.orderRepository.get(tenantId, 'ord_history_pickup_031'),
+    ).resolves.toMatchObject({
+      fulfillmentMethod: 'CUSTOMER_PICKUP',
+      status: 'READY_FOR_DISPATCH',
+    });
+    await expect(
+      repositories.orderRepository.get(tenantId, 'ord_history_store_032'),
+    ).resolves.toMatchObject({ fulfillmentMethod: 'IN_STORE', status: 'DELIVERED' });
     expect(delivery?.attempts.at(-1)).toMatchObject({
       status: 'FAILED',
       failureReason: 'CUSTOMER_UNAVAILABLE',
     });
-    expect(await repositories.fulfillmentRepository.listPaymentEntries(tenantId)).not.toHaveLength(0);
+    expect(await repositories.fulfillmentRepository.listPaymentEntries(tenantId)).not.toHaveLength(
+      0,
+    );
     expect(await repositories.inventoryRepository.listMovements(tenantId)).toContainEqual(
       expect.objectContaining({ type: 'RECEIPT', sourceId: 'receipt_history_launch_stock' }),
     );

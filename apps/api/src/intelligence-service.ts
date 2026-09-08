@@ -26,7 +26,9 @@ type Fact = {
   revenueMinor: number;
   costMinor: number;
   collectedMinor: number;
+  recognized: boolean;
   delivered: boolean;
+  deliveryCompleted: boolean;
   attempted: boolean;
   failed: boolean;
   firstAttempt: boolean;
@@ -79,24 +81,36 @@ function operationalFacts(input: IntelligenceInputs): Fact[] {
     const lastAttempt = delivery?.attempts.at(-1);
     const grossRevenue = recognized ? toUsdMinor(order.totals.grandTotal, input.latestFx) : 0;
     const revenue = Math.max(0, grossRevenue - (refundsByOrder.get(order.id) ?? 0));
-    const cost = recognized && revenue > 0
-      ? order.items.reduce(
-          (sum, item) => sum + toUsdMinor(item.unitCost, input.latestFx) * item.quantity,
-          0,
-        )
-      : 0;
+    const cost =
+      recognized && revenue > 0
+        ? order.items.reduce(
+            (sum, item) => sum + toUsdMinor(item.unitCost, input.latestFx) * item.quantity,
+            0,
+          )
+        : 0;
     return {
       id: order.id,
       occurredAt: order.updatedAt,
       source: order.source,
       productId: order.items[0]?.productId ?? 'unknown',
       productName: order.items[0]?.productName ?? 'Unknown product',
-      area: order.deliveryAddress?.locality ?? order.deliveryAddress?.area ?? 'Address pending',
-      governorate: order.deliveryAddress?.governorate ?? 'Address pending',
+      area:
+        order.deliveryAddress?.locality ??
+        order.deliveryAddress?.area ??
+        (order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+          ? 'Customer pickup'
+          : order.fulfillmentMethod === 'IN_STORE'
+            ? 'In store'
+            : 'Address pending'),
+      governorate:
+        order.deliveryAddress?.governorate ??
+        (order.fulfillmentMethod === 'DELIVERY' ? 'Address pending' : 'No delivery'),
       revenueMinor: revenue,
       costMinor: cost,
       collectedMinor: Math.max(0, paymentsByOrder.get(order.id) ?? 0),
+      recognized,
       delivered: recognized,
+      deliveryCompleted: delivery?.status === 'COMPLETED',
       attempted: Boolean(delivery?.attempts.length),
       failed,
       firstAttempt: delivery?.attempts[0]?.status === 'DELIVERED',
@@ -124,8 +138,8 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
   const previousFrom = from - days * 86_400_000;
   const current = allFacts.filter((fact) => inWindow(fact, from, now + 1));
   const previous = allFacts.filter((fact) => inWindow(fact, previousFrom, from));
-  const recognized = current.filter((fact) => fact.delivered);
-  const previousRecognized = previous.filter((fact) => fact.delivered);
+  const recognized = current.filter((fact) => fact.recognized);
+  const previousRecognized = previous.filter((fact) => fact.recognized);
   const revenue = recognized.reduce((sum, fact) => sum + fact.revenueMinor, 0);
   const previousRevenue = previousRecognized.reduce((sum, fact) => sum + fact.revenueMinor, 0);
   const grossProfit = recognized.reduce((sum, fact) => sum + fact.revenueMinor - fact.costMinor, 0);
@@ -136,9 +150,9 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
   const collected = current.reduce((sum, fact) => sum + fact.collectedMinor, 0);
   const previousCollected = previous.reduce((sum, fact) => sum + fact.collectedMinor, 0);
   const attempted = current.filter((fact) => fact.attempted);
-  const deliveredAttempts = attempted.filter((fact) => fact.delivered);
+  const deliveredAttempts = attempted.filter((fact) => fact.deliveryCompleted);
   const priorAttempted = previous.filter((fact) => fact.attempted);
-  const priorDelivered = priorAttempted.filter((fact) => fact.delivered);
+  const priorDelivered = priorAttempted.filter((fact) => fact.deliveryCompleted);
   const uniqueCustomers = new Set(recognized.map((fact) => fact.customerKey));
   const customerCounts = new Map<string, number>();
   for (const fact of recognized)
@@ -237,7 +251,7 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
         orders: facts.length,
         revenueMinor: areaRevenue,
         deliverySuccessPercent: round1(
-          pct(areaAttempts.filter((fact) => fact.delivered).length, areaAttempts.length),
+          pct(areaAttempts.filter((fact) => fact.deliveryCompleted).length, areaAttempts.length),
         ),
         failedDeliveries: areaAttempts.filter((fact) => fact.failed).length,
         averageOrderMinor: facts.length ? Math.round(areaRevenue / facts.length) : 0,
@@ -409,7 +423,7 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
         previousRevenue,
         'MONEY_MINOR',
         'UP_IS_GOOD',
-        'Delivered order value less recognized refunds; delivery and payment remain separate.',
+        'Completed delivery, pickup and in-store order value less recognized refunds; fulfillment and payment remain separate.',
         recognized.length,
       ),
       metric(
@@ -498,7 +512,7 @@ export function buildIntelligenceSnapshot(input: IntelligenceInputs): Intelligen
       input.latestFx
         ? `This USD view converts LBP records with the owner-approved reference of ${input.latestFx.lbpPerUsd.toLocaleString()} LBP/USD effective ${input.latestFx.effectiveAt.slice(0, 10)}.`
         : 'No owner-approved FX reference exists; LBP money is excluded from USD totals instead of being combined incorrectly.',
-      'Recognized revenue uses delivered order snapshots net of posted refunds. Collected cash uses posted payment entries net of refunds.',
+      'Recognized revenue uses completed delivery, pickup and in-store order snapshots net of posted refunds. Collected cash uses posted payment entries net of refunds.',
       'Gross margin includes snapshotted product cost but excludes delivery, packaging, acquisition and overhead.',
       'All values—including historical periods—are calculated from persistent operational records that can be inspected in Masaar.',
     ],

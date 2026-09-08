@@ -849,6 +849,7 @@ function Overview({
         'READY_FOR_DISPATCH',
         'ASSIGNED_TO_DELIVERY',
         'OUT_FOR_DELIVERY',
+        'FAILED',
       ];
       const completed = fulfillment.deliveries.filter((item) => item.status === 'COMPLETED').length;
       const failed = fulfillment.deliveries.filter((item) => item.status === 'FAILED').length;
@@ -943,7 +944,7 @@ function Overview({
           icon={Route}
           label="Delivery success"
           value={summary?.deliverySuccess ?? '—'}
-          detail="Completed vs failed cases"
+          detail="Delivery cases only; pickup/store excluded"
         />
       </section>
       <section className="mt-7 grid gap-5 xl:grid-cols-[1.15fr_.85fr]">

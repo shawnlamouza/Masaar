@@ -78,6 +78,16 @@ jobs:
           provision manager@masaar.demo MANAGER Nadim
           provision employee@masaar.demo EMPLOYEE Rami
           provision driver@masaar.demo DRIVER Karim
+      - name: Refresh idempotent staging demonstration records
+        shell: bash
+        run: |
+          FUNCTION=$(aws cloudformation describe-stack-resource --stack-name masaar-staging --logical-resource-id ApiFunction --query 'StackResourceDetail.PhysicalResourceId' --output text)
+          META=$(aws lambda invoke --function-name "$FUNCTION" --cli-binary-format raw-in-base64-out --payload '{"maintenanceAction":"SEED_PERSISTENT_DEMO_HISTORY"}' /tmp/masaar-seed-result.json)
+          if jq -e '.FunctionError' <<<"$META" >/dev/null; then
+            cat /tmp/masaar-seed-result.json
+            exit 1
+          fi
+          cat /tmp/masaar-seed-result.json
       - name: Publish web application
         shell: bash
         run: |

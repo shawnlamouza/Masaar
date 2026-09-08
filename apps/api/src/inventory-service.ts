@@ -188,7 +188,7 @@ export async function synchronizeOrderInventory(
         locationId: 'main',
         sourceType: 'ORDER',
         sourceId: order.id,
-        reason: `Stock finalized for delivered order ${order.orderNumber}.`,
+        reason: `Stock finalized for completed order ${order.orderNumber}.`,
         unitCost: line.unitCost,
         idempotencyKey: saleKey,
         createdBy: actor.userId,

@@ -35,6 +35,9 @@ export const orderSourceSchema = z.enum([
 ]);
 export type OrderSource = z.infer<typeof orderSourceSchema>;
 
+export const fulfillmentMethodSchema = z.enum(['DELIVERY', 'CUSTOMER_PICKUP', 'IN_STORE']);
+export type FulfillmentMethod = z.infer<typeof fulfillmentMethodSchema>;
+
 export const orderLineSchema = z.object({
   id: z.string().min(1),
   productId: z.string().min(1),
@@ -91,6 +94,7 @@ export const orderSchema = z.object({
   tenantId: z.string().min(1),
   orderNumber: z.string().min(1),
   source: orderSourceSchema,
+  fulfillmentMethod: fulfillmentMethodSchema.default('DELIVERY'),
   status: orderStatusSchema,
   customerId: z.string().optional(),
   customerName: z.string().min(2).max(120),
@@ -116,32 +120,43 @@ export const orderSchema = z.object({
 });
 export type Order = z.infer<typeof orderSchema>;
 
-export const quickOrderSchema = z.object({
-  source: orderSourceSchema,
-  customerId: z.string().optional(),
-  customerName: z.string().min(2).max(120),
-  customerPhone: z.string().min(5).max(30),
-  items: z
-    .array(
-      z.object({ variantId: z.string().min(1), quantity: z.number().int().positive().max(500) }),
-    )
-    .min(1),
-  discountType: z.enum(['FIXED', 'PERCENT']).default('FIXED'),
-  discountValue: z.number().int().nonnegative(),
-  deliveryFeeMinor: z.number().int().nonnegative(),
-  deliveryZoneId: z.string().optional(),
-  prepaidMinor: z.number().int().nonnegative(),
-  paymentMethod: paymentPreferenceSchema,
-  tags: z.array(z.string().min(1).max(40)).max(12).default([]),
-  note: z.string().max(500).default(''),
-  duplicateOverrideReason: z.string().min(3).max(240).optional(),
-});
+export const quickOrderSchema = z
+  .object({
+    source: orderSourceSchema,
+    fulfillmentMethod: fulfillmentMethodSchema.default('DELIVERY'),
+    staffConfirmedInPerson: z.boolean().default(false),
+    customerId: z.string().optional(),
+    customerName: z.string().min(2).max(120),
+    customerPhone: z.string().min(5).max(30),
+    items: z
+      .array(
+        z.object({ variantId: z.string().min(1), quantity: z.number().int().positive().max(500) }),
+      )
+      .min(1),
+    discountType: z.enum(['FIXED', 'PERCENT']).default('FIXED'),
+    discountValue: z.number().int().nonnegative(),
+    deliveryFeeMinor: z.number().int().nonnegative(),
+    deliveryZoneId: z.string().optional(),
+    prepaidMinor: z.number().int().nonnegative(),
+    paymentMethod: paymentPreferenceSchema,
+    tags: z.array(z.string().min(1).max(40)).max(12).default([]),
+    note: z.string().max(500).default(''),
+    duplicateOverrideReason: z.string().min(3).max(240).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.fulfillmentMethod !== 'DELIVERY' && !value.staffConfirmedInPerson)
+      context.addIssue({
+        code: 'custom',
+        path: ['staffConfirmedInPerson'],
+        message: 'Staff must confirm that the customer approved this pickup or in-store sale.',
+      });
+  });
 export type QuickOrder = z.infer<typeof quickOrderSchema>;
 
 export const quickOrderResponseSchema = z.object({
   order: orderSchema,
-  confirmationToken: z.string().min(20),
-  confirmationUrl: z.string().url(),
+  confirmationToken: z.string().min(20).optional(),
+  confirmationUrl: z.string().url().optional(),
 });
 export type QuickOrderResponse = z.infer<typeof quickOrderResponseSchema>;
 
@@ -191,10 +206,19 @@ export const publicOrderSchema = orderSchema
     items: true,
     totals: true,
     paymentMethod: true,
+    fulfillmentMethod: true,
     confirmationExpiresAt: true,
     confirmedAt: true,
   })
-  .extend({ businessName: z.string() });
+  .extend({
+    businessName: z.string(),
+    paymentSummary: z.object({
+      collected: moneySchema,
+      refunded: moneySchema,
+      balance: moneySchema,
+      state: z.enum(['PENDING', 'PARTIALLY_PAID', 'PAID', 'PARTIALLY_REFUNDED', 'REFUNDED']),
+    }),
+  });
 export type PublicOrder = z.infer<typeof publicOrderSchema>;
 
 export const ORDER_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {

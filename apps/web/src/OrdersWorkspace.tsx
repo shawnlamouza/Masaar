@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type {
   Customer,
   DeliveryZone,
+  FulfillmentMethod,
   Order,
   OrderSource,
   OrderStatus,
@@ -22,6 +23,7 @@ import {
   MessageCircle,
   NotebookPen,
   PackageCheck,
+  ShoppingBag,
   Plus,
   Search,
   Sparkles,
@@ -58,6 +60,7 @@ const ACTIVE_STATUSES = new Set<OrderStatus>([
   ...BOARD_STATUSES,
   'ASSIGNED_TO_DELIVERY',
   'OUT_FOR_DELIVERY',
+  'FAILED',
 ]);
 const DELIVERY_AND_HISTORY_STATUSES: OrderStatus[] = [
   'ASSIGNED_TO_DELIVERY',
@@ -88,11 +91,43 @@ const SOURCES: OrderSource[] = [
   'PHONE',
   'STORE',
 ];
+const FULFILLMENT_OPTIONS: {
+  value: FulfillmentMethod;
+  title: string;
+  detail: string;
+}[] = [
+  {
+    value: 'DELIVERY',
+    title: 'Deliver to customer',
+    detail: 'Send a secure address confirmation, then assign a driver or courier.',
+  },
+  {
+    value: 'CUSTOMER_PICKUP',
+    title: 'Customer pickup',
+    detail: 'Prepare the order, then record the counter handover and payment.',
+  },
+  {
+    value: 'IN_STORE',
+    title: 'In-store sale',
+    detail: 'Customer is present; complete payment and handover without delivery.',
+  },
+];
 const formatStatus = (status: string) =>
   status
     .toLowerCase()
     .replaceAll('_', ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
+const displayOrderStatus = (order: Order) => {
+  if (order.status === 'READY_FOR_DISPATCH' && order.fulfillmentMethod === 'CUSTOMER_PICKUP')
+    return 'Ready for pickup';
+  if (order.status === 'DELIVERED' && order.fulfillmentMethod === 'CUSTOMER_PICKUP')
+    return 'Collected';
+  if (order.status === 'DELIVERED' && order.fulfillmentMethod === 'IN_STORE')
+    return 'Completed in store';
+  if (order.status === 'CONFIRMED' && order.fulfillmentMethod !== 'DELIVERY')
+    return 'Confirmed in person';
+  return formatStatus(order.status);
+};
 const money = (minor: number, currency: 'USD' | 'LBP') =>
   currency === 'USD' ? `$${(minor / 100).toFixed(2)}` : `${Math.round(minor).toLocaleString()} LBP`;
 const inputToMinor = (value: string, currency: 'USD' | 'LBP') =>
@@ -106,11 +141,14 @@ const staffActionLabel = (status: OrderStatus) =>
       : status === 'PACKED'
         ? 'Finish packing → Ready for dispatch'
         : '';
-const actionOwnedStatusHelp = (status: OrderStatus) => {
+const actionOwnedStatusHelp = (order: Order) => {
+  const status = order.status;
   if (status === 'PENDING_CUSTOMER_CONFIRMATION')
     return 'Waiting for the customer to submit the secure confirmation link; staff cannot confirm it for them.';
   if (status === 'READY_FOR_DISPATCH')
-    return 'Choose a driver or delivery company and zone in Delivery; a successful assignment changes this status automatically.';
+    return order.fulfillmentMethod === 'DELIVERY'
+      ? 'Choose a driver or delivery company and zone in Fulfillment; a successful assignment changes this status automatically.'
+      : 'Open Fulfillment to record the physical customer handover and any counter payment.';
   if (status === 'ASSIGNED_TO_DELIVERY')
     return 'The assigned driver changes this to Out for Delivery when the physical trip begins.';
   if (status === 'OUT_FOR_DELIVERY')
@@ -185,7 +223,7 @@ export function OrdersWorkspace({
   const laterOrders = orders.filter((order) => !BOARD_STATUSES.has(order.status));
   const boardOrderCount = orders.filter((order) => BOARD_STATUSES.has(order.status)).length;
   const deliveryOrderCount = orders.filter((order) =>
-    ['ASSIGNED_TO_DELIVERY', 'OUT_FOR_DELIVERY'].includes(order.status),
+    ['ASSIGNED_TO_DELIVERY', 'OUT_FOR_DELIVERY', 'FAILED'].includes(order.status),
   ).length;
   const visibleLaterOrders = [...laterOrders]
     .filter((order) => historyStatus === 'ALL' || order.status === historyStatus)
@@ -228,7 +266,7 @@ export function OrdersWorkspace({
           <Pulse
             label="Active across workflow"
             value={orders.filter((order) => ACTIVE_STATUSES.has(order.status)).length.toString()}
-            detail={`${boardOrderCount} processing + ${deliveryOrderCount} in delivery`}
+            detail={`${boardOrderCount} processing + ${deliveryOrderCount} delivery/retry cases`}
           />
           <Pulse
             label="Waiting on customer"
@@ -264,6 +302,20 @@ export function OrdersWorkspace({
               )}
             </div>
           ))}
+        </div>
+        <div className="relative mt-3 grid gap-2 text-[10px] font-semibold sm:grid-cols-3">
+          <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white/70">
+            <strong className="text-brand-gold">Delivery:</strong> customer confirms → team prepares
+            → dispatch assigns → driver completes
+          </div>
+          <div className="rounded-xl border border-brand-teal/20 bg-brand-teal/10 px-3 py-2 text-white/70">
+            <strong className="text-brand-teal">Pickup:</strong> staff confirms in person → team
+            prepares → counter handover
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white/70">
+            <strong className="text-white">In store:</strong> staff confirms in person → counter
+            payment and handover
+          </div>
         </div>
       </section>
 
@@ -531,7 +583,12 @@ function OrderCard({
             {order.orderNumber}
           </span>
           <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wider text-brand-teal-deep">
-            {order.source}
+            {order.source} ·{' '}
+            {order.fulfillmentMethod === 'DELIVERY'
+              ? 'Delivery'
+              : order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+                ? 'Pickup'
+                : 'In store'}
           </span>
         </button>
         {canWrite && nextBoardStatus(order.status) && (
@@ -570,7 +627,7 @@ function OrderCard({
           <StatusBadge tone={tone}>
             {order.status === 'PENDING_CUSTOMER_CONFIRMATION'
               ? 'Needs reply'
-              : formatStatus(order.status)}
+              : displayOrderStatus(order)}
           </StatusBadge>
           <strong className="font-display text-base text-brand-navy">
             {money(order.totals.grandTotal.amountMinor, order.currency)}
@@ -602,6 +659,8 @@ function QuickOrderPanel({
       .map((variant) => ({ product, variant })),
   );
   const [source, setSource] = useState<OrderSource>('INSTAGRAM');
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>('DELIVERY');
+  const [staffConfirmedInPerson, setStaffConfirmedInPerson] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -616,6 +675,7 @@ function QuickOrderPanel({
   const [duplicateReason, setDuplicateReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [createdLink, setCreatedLink] = useState('');
+  const [createdOrderNumber, setCreatedOrderNumber] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const preview = useMemo(
     () =>
@@ -645,14 +705,16 @@ function QuickOrderPanel({
     setError('');
     const input: QuickOrder = {
       source,
+      fulfillmentMethod,
+      staffConfirmedInPerson,
       ...(customerId ? { customerId } : {}),
       customerName: name,
       customerPhone: phone,
       items: lines,
       discountType: 'FIXED',
       discountValue: inputToMinor(discount, currency),
-      deliveryFeeMinor: inputToMinor(deliveryFee, currency),
-      ...(deliveryZoneId ? { deliveryZoneId } : {}),
+      deliveryFeeMinor: fulfillmentMethod === 'DELIVERY' ? inputToMinor(deliveryFee, currency) : 0,
+      ...(fulfillmentMethod === 'DELIVERY' && deliveryZoneId ? { deliveryZoneId } : {}),
       prepaidMinor: inputToMinor(prepaid, currency),
       paymentMethod: payment,
       tags: [],
@@ -661,9 +723,10 @@ function QuickOrderPanel({
     };
     try {
       const result = await createOrder(role, input);
-      setCreatedLink(result.confirmationUrl);
+      setCreatedLink(result.confirmationUrl ?? '');
+      setCreatedOrderNumber(result.order.orderNumber);
       onCreated(result.order);
-      setLinkCopied(await copyText(result.confirmationUrl));
+      setLinkCopied(result.confirmationUrl ? await copyText(result.confirmationUrl) : false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not create order.');
       if (reason instanceof ApiError && reason.status === 409)
@@ -702,34 +765,82 @@ function QuickOrderPanel({
             <X />
           </button>
         </div>
-        {createdLink && (
+        {createdOrderNumber && (
           <div className="mt-6 rounded-2xl border border-success-strong/15 bg-success-soft p-5 text-success-strong">
-            <strong>Order created successfully.</strong>
+            <strong>{createdOrderNumber} created successfully.</strong>
             <p className="mt-1 text-sm">
-              {linkCopied
-                ? 'The secure confirmation link is on your clipboard.'
-                : 'Clipboard access was blocked; use the copy button below.'}
+              {fulfillmentMethod === 'DELIVERY'
+                ? linkCopied
+                  ? 'The secure delivery-confirmation link is on your clipboard.'
+                  : 'Clipboard access was blocked; use the copy button below.'
+                : fulfillmentMethod === 'CUSTOMER_PICKUP'
+                  ? 'The customer was confirmed in person. Prepare it, mark it ready, then complete pickup in Fulfillment.'
+                  : 'The customer was confirmed in person. Complete payment and handover in Fulfillment.'}
             </p>
-            <p className="mt-1 break-all text-xs">{createdLink}</p>
+            {createdLink && <p className="mt-1 break-all text-xs">{createdLink}</p>}
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => void copyText(createdLink).then(setLinkCopied)}
-              >
-                <Clipboard className="size-4" /> Copy secure link
-              </Button>
+              {createdLink && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void copyText(createdLink).then(setLinkCopied)}
+                >
+                  <Clipboard className="size-4" /> Copy secure link
+                </Button>
+              )}
               <Button type="button" onClick={onClose}>
                 Done
               </Button>
             </div>
           </div>
         )}
-        {!createdLink && (
+        {!createdOrderNumber && (
           <form className="mt-7 space-y-6" onSubmit={submit}>
             <fieldset>
               <legend className="text-sm font-bold text-brand-navy">
-                1. Where did the order start?
+                1. How will the customer receive it?
+              </legend>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                {FULFILLMENT_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    onClick={() => setFulfillmentMethod(option.value)}
+                    className={`clickable-surface rounded-2xl border p-4 text-left transition hover:-translate-y-1 hover:shadow-lg ${fulfillmentMethod === option.value ? 'border-brand-teal bg-brand-teal-soft shadow-[inset_0_1px_0_white,0_8px_0_-4px_rgba(0,168,156,.4)]' : 'border-border bg-white'}`}
+                  >
+                    <span className="grid size-9 place-items-center rounded-xl bg-brand-navy text-brand-gold">
+                      {option.value === 'DELIVERY' ? (
+                        <ArrowRight className="size-4" />
+                      ) : (
+                        <ShoppingBag className="size-4" />
+                      )}
+                    </span>
+                    <strong className="mt-3 block text-sm text-brand-navy">{option.title}</strong>
+                    <span className="mt-1 block text-[11px] leading-4 text-ink-muted">
+                      {option.detail}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {fulfillmentMethod !== 'DELIVERY' && (
+                <label className="mt-3 flex items-start gap-3 rounded-2xl border border-brand-teal/20 bg-brand-teal-soft/45 p-4 text-xs font-semibold leading-5 text-brand-teal-deep">
+                  <input
+                    required
+                    type="checkbox"
+                    checked={staffConfirmedInPerson}
+                    onChange={(event) => setStaffConfirmedInPerson(event.target.checked)}
+                    className="mt-1 size-4"
+                  />
+                  I confirm the customer directly approved this{' '}
+                  {fulfillmentMethod === 'CUSTOMER_PICKUP' ? 'pickup order' : 'in-store sale'}. This
+                  staff action replaces the delivery-address confirmation link and is recorded in
+                  the audit timeline.
+                </label>
+              )}
+            </fieldset>
+            <fieldset>
+              <legend className="text-sm font-bold text-brand-navy">
+                2. Where did the order start?
               </legend>
               <div className="mt-3 flex flex-wrap gap-2">
                 {SOURCES.map((item) => (
@@ -793,7 +904,7 @@ function QuickOrderPanel({
             <fieldset>
               <div className="flex items-center justify-between">
                 <legend className="text-sm font-bold text-brand-navy">
-                  2. Products and variants
+                  3. Products and variants
                 </legend>
                 <Button
                   type="button"
@@ -861,40 +972,45 @@ function QuickOrderPanel({
               </div>
             </fieldset>
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Delivery fee zone">
-                <select
-                  value={deliveryZoneId}
-                  onChange={(event) => {
-                    const id = event.target.value;
-                    setDeliveryZoneId(id);
-                    const selected = compatibleZones.find((zone) => zone.id === id);
-                    if (selected)
-                      setDeliveryFee(
-                        selected.customerFee.currency === 'USD'
-                          ? (selected.customerFee.amountMinor / 100).toFixed(2)
-                          : String(selected.customerFee.amountMinor),
-                      );
-                  }}
-                  className="field"
-                >
-                  <option value="">Manual fee</option>
-                  {compatibleZones.map((zone) => (
-                    <option key={zone.id} value={zone.id}>
-                      {zone.name} · {money(zone.customerFee.amountMinor, zone.customerFee.currency)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={`Delivery fee (${currency})`}>
-                <input
-                  type="number"
-                  min="0"
-                  step={currency === 'USD' ? '0.01' : '1000'}
-                  value={deliveryFee}
-                  onChange={(e) => setDeliveryFee(e.target.value)}
-                  className="field"
-                />
-              </Field>
+              {fulfillmentMethod === 'DELIVERY' && (
+                <Field label="Delivery fee zone">
+                  <select
+                    value={deliveryZoneId}
+                    onChange={(event) => {
+                      const id = event.target.value;
+                      setDeliveryZoneId(id);
+                      const selected = compatibleZones.find((zone) => zone.id === id);
+                      if (selected)
+                        setDeliveryFee(
+                          selected.customerFee.currency === 'USD'
+                            ? (selected.customerFee.amountMinor / 100).toFixed(2)
+                            : String(selected.customerFee.amountMinor),
+                        );
+                    }}
+                    className="field"
+                  >
+                    <option value="">Manual fee</option>
+                    {compatibleZones.map((zone) => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name} ·{' '}
+                        {money(zone.customerFee.amountMinor, zone.customerFee.currency)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {fulfillmentMethod === 'DELIVERY' && (
+                <Field label={`Delivery fee (${currency})`}>
+                  <input
+                    type="number"
+                    min="0"
+                    step={currency === 'USD' ? '0.01' : '1000'}
+                    value={deliveryFee}
+                    onChange={(e) => setDeliveryFee(e.target.value)}
+                    className="field"
+                  />
+                </Field>
+              )}
               <Field label={`Discount (${currency})`}>
                 <input
                   type="number"
@@ -923,7 +1039,9 @@ function QuickOrderPanel({
                   onChange={(e) => setPayment(e.target.value as 'CASH' | 'WHISH')}
                   className="field"
                 >
-                  <option value="CASH">Cash on delivery</option>
+                  <option value="CASH">
+                    {fulfillmentMethod === 'DELIVERY' ? 'Cash on delivery' : 'Cash at counter'}
+                  </option>
                   <option value="WHISH">Whish</option>
                 </select>
               </Field>
@@ -961,7 +1079,13 @@ function QuickOrderPanel({
                 </strong>
               </div>
               <Button disabled={busy || !variants.length} className="min-h-12">
-                {busy ? 'Creating…' : 'Create & copy confirmation'}
+                {busy
+                  ? 'Creating…'
+                  : fulfillmentMethod === 'DELIVERY'
+                    ? 'Create & copy confirmation'
+                    : fulfillmentMethod === 'CUSTOMER_PICKUP'
+                      ? 'Create pickup order'
+                      : 'Create in-store sale'}
                 <ArrowRight className="size-4" />
               </Button>
             </div>
@@ -1102,7 +1226,7 @@ function OrderDetail({
           )}
           {canWrite && !next && !['CANCELLED', 'RETURNED', 'REFUNDED'].includes(order.status) && (
             <p className="mt-4 rounded-xl border border-brand-teal/20 bg-brand-teal-soft/60 p-3 text-xs font-semibold leading-5 text-brand-teal-deep">
-              {actionOwnedStatusHelp(order.status)}
+              {actionOwnedStatusHelp(order)}
             </p>
           )}
         </div>
@@ -1117,13 +1241,22 @@ function OrderDetail({
           )}
           <div className="grid grid-cols-2 gap-3">
             <Info icon={UserRound} label="Customer" value={order.customerName} />
-            <Info icon={Clock3} label="Current stage" value={formatStatus(order.status)} />
+            <Info icon={Clock3} label="Current stage" value={displayOrderStatus(order)} />
             <Info
               icon={PackageCheck}
               label="Amount due"
               value={money(order.totals.amountDue.amountMinor, order.currency)}
             />
             <Info icon={Instagram} label="Source" value={formatStatus(order.source)} />
+            <Info
+              icon={ShoppingBag}
+              label="Fulfillment"
+              value={
+                order.fulfillmentMethod === 'CUSTOMER_PICKUP'
+                  ? 'Customer pickup'
+                  : formatStatus(order.fulfillmentMethod)
+              }
+            />
           </div>
           {canWrite && canCancel && (
             <div className="rounded-2xl border border-danger-strong/15 bg-danger-soft/30 p-4">
@@ -1187,7 +1320,9 @@ function OrderDetail({
             </div>
             <div className="mt-4 border-t border-border pt-3 text-sm">
               <div className="flex justify-between text-ink-muted">
-                <span>Delivery</span>
+                <span>
+                  {order.fulfillmentMethod === 'DELIVERY' ? 'Delivery' : 'No delivery fee'}
+                </span>
                 <span>{money(order.totals.deliveryFee.amountMinor, order.currency)}</span>
               </div>
               <div className="mt-2 flex justify-between font-bold text-brand-navy">
@@ -1203,16 +1338,21 @@ function OrderDetail({
                 <h3 className="font-display font-bold text-brand-navy">WhatsApp tools</h3>
               </div>
               <p className="mt-1 text-xs text-ink-muted">
-                Every message contains a fresh secure customer link; Masaar records who prepared it
-                and when.
+                {order.fulfillmentMethod === 'DELIVERY'
+                  ? 'Confirmation and reminder messages contain a secure address link; every copy is audited.'
+                  : 'This order was confirmed in person. A status message can still share its secure tracking view.'}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => void copy('CONFIRMATION')}>
-                  <Clipboard className="size-4" /> Confirmation
-                </Button>
-                <Button variant="secondary" onClick={() => void copy('REMINDER')}>
-                  Reminder
-                </Button>
+                {order.fulfillmentMethod === 'DELIVERY' && (
+                  <>
+                    <Button variant="secondary" onClick={() => void copy('CONFIRMATION')}>
+                      <Clipboard className="size-4" /> Confirmation
+                    </Button>
+                    <Button variant="secondary" onClick={() => void copy('REMINDER')}>
+                      Reminder
+                    </Button>
+                  </>
+                )}
                 <Button variant="secondary" onClick={() => void copy('STATUS')}>
                   Status + tracking
                 </Button>

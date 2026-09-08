@@ -87,13 +87,7 @@ export function BusinessSetupWorkspace({
     void reload();
   }, [role]);
   const progress = useMemo(() => {
-    const checks = [
-      Boolean(settings?.businessName),
-      productCount > 0,
-      team.length > 1,
-      Boolean(fulfillment?.resources.length),
-      Boolean(fulfillment?.zones.length),
-    ];
+    const checks = [Boolean(settings?.businessName), productCount > 0, team.length > 1];
     return { checks, completed: checks.filter(Boolean).length };
   }, [settings, productCount, team, fulfillment]);
   const panels: { id: typeof panel; title: string; Icon: typeof Building2 }[] = [
@@ -121,21 +115,21 @@ export function BusinessSetupWorkspace({
               Make Masaar match the real company.
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/65">
-              Configure the business once. Products, people, delivery coverage and permissions then
-              drive every operational screen automatically.
+              Configure the business once. Every order can then use delivery, customer pickup or
+              in-store handover; delivery partners and zones are needed only when delivery is used.
             </p>
           </div>
           <div className="min-w-64 rounded-2xl border border-white/10 bg-white/8 p-4">
             <div className="flex items-end justify-between">
               <span className="text-xs font-bold text-white/55">Setup readiness</span>
               <strong className="font-display text-2xl text-brand-teal">
-                {progress.completed}/5
+                {progress.completed}/3 core
               </strong>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
               <div
                 className="h-full rounded-full bg-brand-teal transition-all"
-                style={{ width: `${progress.completed * 20}%` }}
+                style={{ width: `${(progress.completed / 3) * 100}%` }}
               />
             </div>
           </div>
@@ -159,8 +153,20 @@ export function BusinessSetupWorkspace({
             productCount ? `${productCount} products` : 'Open catalog',
           ],
           ['Team access', progress.checks[2], `${team.length} users`],
-          ['Delivery partners', progress.checks[3], `${fulfillment.resources.length} configured`],
-          ['Fee zones', progress.checks[4], `${fulfillment.zones.length} configured`],
+          [
+            'Delivery partners (optional)',
+            true,
+            fulfillment.resources.length
+              ? `${fulfillment.resources.length} configured`
+              : 'Not needed for pickup/store',
+          ],
+          [
+            'Fee zones (optional)',
+            true,
+            fulfillment.zones.length
+              ? `${fulfillment.zones.length} configured`
+              : 'Not needed for pickup/store',
+          ],
         ].map(([title, done, detail]) => (
           <Card
             key={String(title)}
@@ -382,8 +388,14 @@ function TeamPanel({
           title="People and access"
           detail="Invite the person, choose the job, and Masaar exposes only the tools that job needs."
         />
-        <Button onClick={() => { setOpen(!open); if (open) setEditingEmail(''); }}>
-          {open ? <X className="size-4" /> : <UserPlus className="size-4" />} {open ? 'Close' : 'Add person'}
+        <Button
+          onClick={() => {
+            setOpen(!open);
+            if (open) setEditingEmail('');
+          }}
+        >
+          {open ? <X className="size-4" /> : <UserPlus className="size-4" />}{' '}
+          {open ? 'Close' : 'Add person'}
         </Button>
       </div>
       {open && (
@@ -411,11 +423,24 @@ function TeamPanel({
               onChange={(event) => setForm({ ...form, email: event.target.value })}
             />
           </label>
-          {!editingEmail && <label className="text-xs font-bold text-ink-muted sm:col-span-2">
-            Starter password
-            <input required minLength={8} type="password" className={field} value={form.temporaryPassword ?? ''} onChange={(event) => setForm({ ...form, temporaryPassword: event.target.value })} placeholder="At least 8 characters" />
-            <span className="mt-1 block font-normal">The user receives an email code and uses this starter password when activating the account.</span>
-          </label>}
+          {!editingEmail && (
+            <label className="text-xs font-bold text-ink-muted sm:col-span-2">
+              Starter password
+              <input
+                required
+                minLength={8}
+                type="password"
+                className={field}
+                value={form.temporaryPassword ?? ''}
+                onChange={(event) => setForm({ ...form, temporaryPassword: event.target.value })}
+                placeholder="At least 8 characters"
+              />
+              <span className="mt-1 block font-normal">
+                The user receives an email code and uses this starter password when activating the
+                account.
+              </span>
+            </label>
+          )}
           <label className="text-xs font-bold text-ink-muted">
             Role
             <select
@@ -455,30 +480,52 @@ function TeamPanel({
               <p className="truncate text-xs text-ink-muted">{member.email}</p>
             </div>
             <div className="ml-auto flex items-center gap-2 text-right">
-              {member.role !== 'OWNER' && <button type="button" title="Edit user" onClick={() => {
-                setEditingEmail(member.email); setOpen(true);
-                setForm({ displayName: member.displayName, email: member.email, role: member.role as Exclude<Role, 'OWNER'>, phone: '', temporaryPassword: '' });
-              }} className="grid size-9 place-items-center rounded-xl border border-border text-brand-navy transition hover:border-brand-teal hover:bg-brand-teal-soft"><Pencil className="size-4" /></button>}
+              {member.role !== 'OWNER' && (
+                <button
+                  type="button"
+                  title="Edit user"
+                  onClick={() => {
+                    setEditingEmail(member.email);
+                    setOpen(true);
+                    setForm({
+                      displayName: member.displayName,
+                      email: member.email,
+                      role: member.role as Exclude<Role, 'OWNER'>,
+                      phone: '',
+                      temporaryPassword: '',
+                    });
+                  }}
+                  className="grid size-9 place-items-center rounded-xl border border-border text-brand-navy transition hover:border-brand-teal hover:bg-brand-teal-soft"
+                >
+                  <Pencil className="size-4" />
+                </button>
+              )}
               <button
                 type="button"
                 disabled={resetting === member.email}
                 title="Send secure password reset"
-                onClick={() => void (async () => {
-                  setResetting(member.email);
-                  try {
-                    const result = await resetTeamMemberPassword(role, member.email);
-                    await onInvited(result.temporaryPassword
-                      ? `Development reset for ${member.displayName}: ${result.temporaryPassword}`
-                      : `Password reset code sent securely to ${member.email}.`);
-                  } finally { setResetting(''); }
-                })()}
+                onClick={() =>
+                  void (async () => {
+                    setResetting(member.email);
+                    try {
+                      const result = await resetTeamMemberPassword(role, member.email);
+                      await onInvited(
+                        result.temporaryPassword
+                          ? `Development reset for ${member.displayName}: ${result.temporaryPassword}`
+                          : `Password reset code sent securely to ${member.email}.`,
+                      );
+                    } finally {
+                      setResetting('');
+                    }
+                  })()
+                }
                 className="grid size-9 place-items-center rounded-xl border border-border text-brand-teal-deep transition hover:border-brand-teal hover:bg-brand-teal-soft disabled:opacity-50"
               >
                 <KeyRound className="size-4" />
               </button>
               <div>
-              <StatusBadge tone="success">{nice(member.role)}</StatusBadge>
-              <p className="mt-1 text-[10px] text-ink-muted">{member.status}</p>
+                <StatusBadge tone="success">{nice(member.role)}</StatusBadge>
+                <p className="mt-1 text-[10px] text-ink-muted">{member.status}</p>
               </div>
             </div>
           </div>

@@ -556,6 +556,152 @@ describe('Masaar API foundation', () => {
     await app.close();
   });
 
+  it('completes customer pickup without inventing a delivery case', async () => {
+    const app = await buildApp({ config });
+    const tenant = 'tenant_pickup_flow';
+    const headers = { authorization: 'Bearer dev.employee', 'x-tenant-id': tenant };
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/orders',
+      headers,
+      payload: {
+        source: 'WHATSAPP',
+        fulfillmentMethod: 'CUSTOMER_PICKUP',
+        staffConfirmedInPerson: true,
+        customerName: 'Nour Pickup',
+        customerPhone: '70 555 111',
+        items: [{ variantId: 'var_linen_s_sand', quantity: 1 }],
+        discountType: 'FIXED',
+        discountValue: 0,
+        deliveryFeeMinor: 0,
+        prepaidMinor: 0,
+        paymentMethod: 'CASH',
+        tags: [],
+        note: '',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).not.toHaveProperty('confirmationToken');
+    expect(created.json().order).toMatchObject({
+      fulfillmentMethod: 'CUSTOMER_PICKUP',
+      status: 'CONFIRMED',
+      totals: { deliveryFee: { amountMinor: 0, currency: 'USD' } },
+    });
+    let order = created.json().order;
+    for (const status of ['PREPARING', 'PACKED', 'READY_FOR_DISPATCH']) {
+      const moved = await app.inject({
+        method: 'POST',
+        url: `/api/orders/${order.id}/transition`,
+        headers,
+        payload: { status, reason: 'Physical preparation completed' },
+      });
+      expect(moved.statusCode).toBe(200);
+      order = moved.json();
+    }
+    const fakeDelivery = await app.inject({
+      method: 'POST',
+      url: '/api/fulfillment/assignments',
+      headers,
+      payload: { orderId: order.id, resourceId: 'usr_driver', zoneId: 'zone_metn' },
+    });
+    expect(fakeDelivery.statusCode).toBe(409);
+    const handedOver = await app.inject({
+      method: 'POST',
+      url: '/api/fulfillment/counter-handover',
+      headers,
+      payload: {
+        orderId: order.id,
+        payment: {
+          method: 'CASH',
+          amountMinor: order.totals.amountDue.amountMinor,
+          currency: 'USD',
+          reference: 'Counter receipt 101',
+        },
+      },
+    });
+    expect(handedOver.statusCode).toBe(200);
+    expect(handedOver.json()).toMatchObject({
+      order: { status: 'DELIVERED', fulfillmentMethod: 'CUSTOMER_PICKUP' },
+      payment: { holderId: 'business_cash', type: 'COLLECTION' },
+    });
+    const snapshot = await app.inject({
+      method: 'GET',
+      url: '/api/fulfillment/snapshot',
+      headers,
+    });
+    expect(
+      snapshot.json().deliveries.some((item: { orderId: string }) => item.orderId === order.id),
+    ).toBe(false);
+    expect(
+      snapshot.json().payments.find((item: { orderId: string }) => item.orderId === order.id),
+    ).toMatchObject({ state: 'PAID' });
+    await app.close();
+  });
+
+  it('closes an in-store sale immediately while keeping unpaid credit explicit', async () => {
+    const app = await buildApp({ config });
+    const headers = {
+      authorization: 'Bearer dev.employee',
+      'x-tenant-id': 'tenant_in_store_flow',
+    };
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/orders',
+      headers,
+      payload: {
+        source: 'STORE',
+        fulfillmentMethod: 'IN_STORE',
+        staffConfirmedInPerson: true,
+        customerName: 'Karim Walk In',
+        customerPhone: '03 555 222',
+        items: [{ variantId: 'var_linen_s_sand', quantity: 1 }],
+        discountType: 'FIXED',
+        discountValue: 0,
+        deliveryFeeMinor: 0,
+        prepaidMinor: 0,
+        paymentMethod: 'WHISH',
+        tags: [],
+        note: '',
+      },
+    });
+    expect(created.json().order.status).toBe('CONFIRMED');
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/api/fulfillment/counter-handover',
+      headers,
+      payload: { orderId: created.json().order.id },
+    });
+    expect(blocked.statusCode).toBe(409);
+    const creditSale = await app.inject({
+      method: 'POST',
+      url: '/api/fulfillment/counter-handover',
+      headers,
+      payload: {
+        orderId: created.json().order.id,
+        allowOutstandingBalance: true,
+        note: 'Approved account sale; payment due Friday.',
+      },
+    });
+    expect(creditSale.statusCode).toBe(200);
+    expect(creditSale.json().order.status).toBe('DELIVERED');
+    const snapshot = await app.inject({
+      method: 'GET',
+      url: '/api/fulfillment/snapshot',
+      headers,
+    });
+    expect(
+      snapshot
+        .json()
+        .payments.find((item: { orderId: string }) => item.orderId === created.json().order.id),
+    ).toMatchObject({ state: 'PENDING' });
+    expect(
+      snapshot
+        .json()
+        .deliveries.some((item: { orderId: string }) => item.orderId === created.json().order.id),
+    ).toBe(false);
+    await app.close();
+  });
+
   it('uses a selected LBP delivery zone as the authoritative server-side fee', async () => {
     const app = await buildApp({ config });
     const headers = {
