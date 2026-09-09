@@ -73,26 +73,52 @@ const DEV_IDENTITIES: Record<string, DevIdentity> = {
   },
 };
 
+const DEMO_IDENTITIES: Record<string, DevIdentity> = {
+  'dev.owner': {
+    ...DEV_IDENTITIES['dev.owner']!,
+    userId: '54b88448-0061-7057-89c4-f025787b05e7',
+    displayName: 'Joe',
+  },
+  'dev.manager': {
+    ...DEV_IDENTITIES['dev.manager']!,
+    userId: '34186458-f031-704c-5a06-69cb7f1a5d52',
+    displayName: 'Nadim',
+  },
+  'dev.employee': {
+    ...DEV_IDENTITIES['dev.employee']!,
+    userId: '84386488-5061-703e-604f-7a324126878a',
+    displayName: 'Rami',
+  },
+  'dev.driver': {
+    ...DEV_IDENTITIES['dev.driver']!,
+    userId: '74681468-2031-7042-32b5-4b618a5238c4',
+    displayName: 'Karim',
+  },
+};
+
 const DYNAMIC_IDENTITIES = new Map<string, { token: string; identity: DevIdentity }>();
 
-function findCredential(email: string) {
+function findCredential(email: string, authMode: 'dev' | 'demo' = 'dev') {
   const normalized = email.trim().toLowerCase();
-  const builtIn = Object.entries(DEV_IDENTITIES).find(
+  const builtIn = Object.entries(authMode === 'demo' ? DEMO_IDENTITIES : DEV_IDENTITIES).find(
     ([, identity]) => identity.email === normalized,
   );
   return builtIn ? { token: builtIn[0], identity: builtIn[1] } : DYNAMIC_IDENTITIES.get(normalized);
 }
 
-export function provisionDevMember(input: {
-  tenantId: string;
-  displayName: string;
-  email: string;
-  role: Role;
-  password: string;
-  onboardingRequired?: boolean;
-}) {
+export function provisionDevMember(
+  input: {
+    tenantId: string;
+    displayName: string;
+    email: string;
+    role: Role;
+    password: string;
+    onboardingRequired?: boolean;
+  },
+  authMode: 'dev' | 'demo' = 'dev',
+) {
   const email = input.email.trim().toLowerCase();
-  if (findCredential(email))
+  if (findCredential(email, authMode))
     throw Object.assign(new Error('A user with this email already exists.'), { statusCode: 409 });
   const identity: DevIdentity = {
     userId: `usr_${randomUUID()}`,
@@ -109,11 +135,15 @@ export function provisionDevMember(input: {
   return { token, identity };
 }
 
-export function listDevTeam(tenantId: string): TeamMember[] {
+export function listDevTeam(tenantId: string, authMode: 'dev' | 'demo' = 'dev'): TeamMember[] {
   const createdAt = '2026-08-22T08:00:00.000Z';
   const demo =
     tenantId === 'tenant_cedar_thread'
-      ? Object.values(DEV_IDENTITIES).map((identity) => ({ ...identity, tenantId, createdAt }))
+      ? Object.values(authMode === 'demo' ? DEMO_IDENTITIES : DEV_IDENTITIES).map((identity) => ({
+          ...identity,
+          tenantId,
+          createdAt,
+        }))
       : [];
   const dynamic = [...DYNAMIC_IDENTITIES.values()]
     .map(({ identity }) => identity)
@@ -152,7 +182,7 @@ export async function provisionMember(
     requireEmailProof?: boolean;
   },
 ) {
-  if (config.AUTH_MODE === 'dev') return provisionDevMember(input);
+  if (config.AUTH_MODE !== 'cognito') return provisionDevMember(input, config.AUTH_MODE);
   const client = cognitoClient(config);
   const email = input.email.trim().toLowerCase();
   let created;
@@ -209,7 +239,7 @@ export async function provisionMember(
 }
 
 export async function listTeam(config: AppConfig, tenantId: string): Promise<TeamMember[]> {
-  if (config.AUTH_MODE === 'dev') return listDevTeam(tenantId);
+  if (config.AUTH_MODE !== 'cognito') return listDevTeam(tenantId, config.AUTH_MODE);
   const client = cognitoClient(config);
   const users: UserType[] = [];
   let paginationToken: string | undefined;
@@ -255,11 +285,11 @@ function bearerToken(request: FastifyRequest): string | null {
   return value.slice('Bearer '.length).trim();
 }
 
-function devSession(request: FastifyRequest): Session | null {
+function devSession(request: FastifyRequest, authMode: 'dev' | 'demo'): Session | null {
   const token = bearerToken(request);
   if (!token) return null;
   const identity =
-    DEV_IDENTITIES[token] ??
+    (authMode === 'demo' ? DEMO_IDENTITIES : DEV_IDENTITIES)[token] ??
     [...DYNAMIC_IDENTITIES.values()].find((item) => item.token === token)?.identity;
   const tenantId = request.headers['x-tenant-id'];
   if (!identity || (!identity.tenantId && (typeof tenantId !== 'string' || !tenantId))) return null;
@@ -267,7 +297,7 @@ function devSession(request: FastifyRequest): Session | null {
     ...identity,
     tenantId: identity.tenantId ?? tenantId,
     permissions: ROLE_PERMISSIONS[identity.role],
-    authMode: 'dev',
+    authMode,
     onboardingRequired: identity.onboardingRequired ?? false,
   });
 }
@@ -298,8 +328,8 @@ export async function registerAuth(
     reply.header('x-correlation-id', request.correlationId);
 
     if (request.url === '/health') return;
-    if (config.AUTH_MODE === 'dev') {
-      request.session = devSession(request);
+    if (config.AUTH_MODE !== 'cognito') {
+      request.session = devSession(request, config.AUTH_MODE);
       return;
     }
 
@@ -384,7 +414,7 @@ export async function registerAuth(
         session,
       };
     }
-    const match = findCredential(credentials.email);
+    const match = findCredential(credentials.email, config.AUTH_MODE);
     if (!match || credentials.password !== match.identity.password) {
       return reply.code(401).send({
         error: 'INVALID_CREDENTIALS',
@@ -397,7 +427,7 @@ export async function registerAuth(
       ...identity,
       tenantId: identity.tenantId ?? 'tenant_cedar_thread',
       permissions: ROLE_PERMISSIONS[identity.role],
-      authMode: 'dev',
+      authMode: config.AUTH_MODE,
       onboardingRequired: identity.onboardingRequired ?? false,
     });
     await ensureDriverResource(fulfillment, session);
@@ -408,7 +438,9 @@ export async function registerAuth(
   });
 
   app.post('/api/auth/forgot-password', async (request) => {
-    const email = String((request.body as { email?: unknown })?.email ?? '').trim().toLowerCase();
+    const email = String((request.body as { email?: unknown })?.email ?? '')
+      .trim()
+      .toLowerCase();
     if (!email.includes('@')) return { accepted: true };
     if (config.AUTH_MODE === 'cognito') {
       try {
@@ -425,9 +457,13 @@ export async function registerAuth(
   app.post('/api/auth/confirm-password-reset', async (request, reply) => {
     const body = request.body as { email?: string; code?: string; newPassword?: string };
     if (!body.email || !body.code || !body.newPassword || body.newPassword.length < 8)
-      return reply.badRequest('Email, verification code and a password of at least 8 characters are required.');
+      return reply.badRequest(
+        'Email, verification code and a password of at least 8 characters are required.',
+      );
     if (config.AUTH_MODE !== 'cognito')
-      return reply.badRequest('Email password recovery is available in the deployed Cognito environment.');
+      return reply.badRequest(
+        'Email password recovery is available in the deployed Cognito environment.',
+      );
     try {
       await cognitoClient(config).send(
         new ConfirmForgotPasswordCommand({
@@ -438,7 +474,9 @@ export async function registerAuth(
         }),
       );
     } catch {
-      return reply.badRequest('The verification code is invalid or expired. Request a new code and try again.');
+      return reply.badRequest(
+        'The verification code is invalid or expired. Request a new code and try again.',
+      );
     }
     return { reset: true };
   });
@@ -471,7 +509,8 @@ export async function registerAuth(
       return reply.code(202).send({
         verificationRequired: true,
         email: input.email.trim().toLowerCase(),
-        message: 'A verification code was sent by Amazon Cognito. Set your password to activate the workspace.',
+        message:
+          'A verification code was sent by Amazon Cognito. Set your password to activate the workspace.',
       });
     const accessToken = token;
     return reply.code(201).send({
@@ -491,8 +530,8 @@ export async function registerAuth(
 
 export async function resetMemberPassword(config: AppConfig, email: string) {
   const normalized = email.trim().toLowerCase();
-  if (config.AUTH_MODE === 'dev') {
-    const match = findCredential(normalized);
+  if (config.AUTH_MODE !== 'cognito') {
+    const match = findCredential(normalized, config.AUTH_MODE);
     if (!match) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
     const temporaryPassword = `Masaar-${randomUUID().slice(0, 8)}`;
     match.identity.password = temporaryPassword;
@@ -513,22 +552,24 @@ export async function updateMember(
   input: { displayName: string; role: Exclude<Role, 'OWNER'>; phone?: string },
 ) {
   const normalized = email.trim().toLowerCase();
-  if (config.AUTH_MODE === 'dev') {
-    const match = findCredential(normalized);
+  if (config.AUTH_MODE !== 'cognito') {
+    const match = findCredential(normalized, config.AUTH_MODE);
     if (!match) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
     match.identity.displayName = input.displayName;
     match.identity.role = input.role;
     return;
   }
-  await cognitoClient(config).send(new AdminUpdateUserAttributesCommand({
-    UserPoolId: config.COGNITO_USER_POOL_ID!,
-    Username: normalized,
-    UserAttributes: [
-      { Name: 'name', Value: input.displayName },
-      { Name: 'custom:role', Value: input.role },
-      ...(input.phone ? [{ Name: 'phone_number', Value: input.phone }] : []),
-    ],
-  }));
+  await cognitoClient(config).send(
+    new AdminUpdateUserAttributesCommand({
+      UserPoolId: config.COGNITO_USER_POOL_ID!,
+      Username: normalized,
+      UserAttributes: [
+        { Name: 'name', Value: input.displayName },
+        { Name: 'custom:role', Value: input.role },
+        ...(input.phone ? [{ Name: 'phone_number', Value: input.phone }] : []),
+      ],
+    }),
+  );
 }
 
 async function ensureDriverResource(fulfillment: FulfillmentRepository, session: Session) {

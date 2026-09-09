@@ -820,11 +820,19 @@ async function ensureApplicationDatabase(connectionString: string) {
     throw new Error('SQL Server database name may contain only letters, numbers, and underscores');
   }
 
-  const masterPool = await new sql.ConnectionPool(masterConnectionString(connectionString)).connect();
+  const masterPool = await new sql.ConnectionPool(
+    masterConnectionString(connectionString),
+  ).connect();
   try {
-    await masterPool.request().batch(
-      `IF DB_ID(N'${databaseName}') IS NULL EXEC(N'CREATE DATABASE [${databaseName}]')`,
-    );
+    try {
+      await masterPool
+        .request()
+        .batch(`IF DB_ID(N'${databaseName}') IS NULL EXEC(N'CREATE DATABASE [${databaseName}]')`);
+    } catch (error) {
+      // Azure SQL can conceal databases from DB_ID in master for contained users,
+      // even though the target database exists and is directly accessible.
+      if (!(error instanceof sql.RequestError) || error.number !== 1801) throw error;
+    }
   } finally {
     await masterPool.close();
   }

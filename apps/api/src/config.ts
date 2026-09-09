@@ -5,7 +5,7 @@ const configSchema = z
     PORT: z.coerce.number().int().positive().default(3001),
     HOST: z.string().default('127.0.0.1'),
     MAASAR_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
-    AUTH_MODE: z.enum(['dev', 'cognito']).default('dev'),
+    AUTH_MODE: z.enum(['dev', 'demo', 'cognito']).default('dev'),
     LOG_LEVEL: z.string().default('info'),
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
     COGNITO_USER_POOL_ID: z.string().optional(),
@@ -15,11 +15,18 @@ const configSchema = z
   })
   .superRefine((value, context) => {
     const deployed = value.MAASAR_ENV === 'staging' || value.MAASAR_ENV === 'production';
-    if (deployed && value.AUTH_MODE !== 'cognito') {
+    if (value.MAASAR_ENV === 'production' && value.AUTH_MODE !== 'cognito') {
       context.addIssue({
         code: 'custom',
         path: ['AUTH_MODE'],
-        message: 'AUTH_MODE must be cognito in staging and production; demo credentials are local-only',
+        message: 'AUTH_MODE must be cognito in production; the explicit demo mode is staging-only',
+      });
+    }
+    if (value.AUTH_MODE === 'demo' && value.MAASAR_ENV !== 'staging') {
+      context.addIssue({
+        code: 'custom',
+        path: ['AUTH_MODE'],
+        message: 'AUTH_MODE=demo is allowed only in the staging demonstration environment',
       });
     }
     if (value.AUTH_MODE === 'dev') {
@@ -40,7 +47,11 @@ const configSchema = z
           });
         }
       } catch {
-        context.addIssue({ code: 'custom', path: ['WEB_ORIGIN'], message: 'WEB_ORIGIN must be a URL' });
+        context.addIssue({
+          code: 'custom',
+          path: ['WEB_ORIGIN'],
+          message: 'WEB_ORIGIN must be a URL',
+        });
       }
     }
     if (value.AUTH_MODE === 'cognito') {
@@ -50,9 +61,7 @@ const configSchema = z
         }
       }
     }
-    if (
-      deployed && !value.SQLSERVER_CONNECTION_STRING
-    ) {
+    if (deployed && !value.SQLSERVER_CONNECTION_STRING) {
       context.addIssue({
         code: 'custom',
         path: ['SQLSERVER_CONNECTION_STRING'],

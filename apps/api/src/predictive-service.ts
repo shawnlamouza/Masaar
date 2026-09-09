@@ -36,8 +36,8 @@ export function buildPredictiveSnapshot(input: PredictiveInputs): PredictiveSnap
       weights.reduce((sum, value) => sum + value, 0)
     );
   };
-  const expectedDailyRevenue = weighted(dailyRevenue.slice(-6));
-  const expectedDailyOrders = weighted(dailyOrders.slice(-6));
+  const expectedDailyRevenue = weighted(dailyRevenue.slice(-6)) || weighted(dailyRevenue);
+  const expectedDailyOrders = weighted(dailyOrders.slice(-6)) || weighted(dailyOrders);
   const average = dailyRevenue.length
     ? dailyRevenue.reduce((sum, value) => sum + value, 0) / dailyRevenue.length
     : 0;

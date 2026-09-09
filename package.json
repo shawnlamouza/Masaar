@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "pnpm --filter @masaar/contracts build && pnpm --filter @masaar/ui build && pnpm --filter @masaar/api build && pnpm --filter @masaar/web build",
+    "build:azure": "pnpm build && node scripts/build-azure.mjs",
     "typecheck": "pnpm --filter @masaar/contracts build && pnpm --filter @masaar/ui build && pnpm --filter @masaar/api typecheck && pnpm --filter @masaar/web typecheck",
     "test": "pnpm -r --if-present test",
     "lint": "eslint .",

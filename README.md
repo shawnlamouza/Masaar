@@ -2,6 +2,8 @@
 
 Public repository: https://github.com/shawnlamouza/Masaar
 
+Live application: https://masaar.azurewebsites.net
+
 Masaar is a Lebanon-tailored operations and decision-intelligence platform for small businesses that sell through Instagram, WhatsApp, TikTok, Facebook, phone, physical stores, or simple websites.
 
 The product captures what happens after a customer decides to order, protects delivery/payment/stock accountability, and converts those records into explainable owner actions.
@@ -41,19 +43,19 @@ Each order can follow delivery, customer-pickup, or in-store fulfillment. Only d
 3. Copy `.env.example` to the relevant app environment files if custom values are needed.
 4. Run `pnpm dev` and open `http://localhost:5173`.
 
-Development authentication is deliberately local-only. Sign in with `joe@masaar.demo` and `Masaar-Demo1!` for Joe's owner workspace; manager, employee, driver and analyst demo identities are available on the sign-in page. The API resolves the role and tenant from the authenticated session. Staging and production use Cognito.
+Development authentication is deliberately local-only. Sign in with `joe@masaar.demo` and `Masaar-Demo1!` for Joe's owner workspace; manager, employee and driver demonstration identities are available on the sign-in page. The live competition environment uses an explicit staging-only demo mode with the same role boundaries and persistent SQL records. Production configuration fails closed unless Cognito is enabled.
 
-## Approved technology direction
+## Technology
 
 - Frontend: React, TypeScript, Vite, Tailwind CSS
 - Backend: Node.js, TypeScript, Fastify, Zod
-- Database: Microsoft SQL Server, with SSMS-compatible schema scripts and Amazon RDS for SQL Server as the AWS deployment target
-- Cloud: AWS managed services described in the architecture decisions
+- Database: Microsoft SQL Server, with SSMS-compatible schema scripts; the live environment uses Azure SQL Database and the repository retains its Amazon RDS deployment path
+- Cloud: Azure App Service and Azure SQL Database for the live application, with the documented AWS SAM architecture retained for Amazon-program portability
 - Visualization: Recharts
 
 Phase 5 connects ready orders to internal drivers, freelancers or delivery companies, preserves every attempt and failed-delivery reason, and keeps delivery, payment and cash custody separate. Phase 6 connects the same orders to stock reservations, sale finalization, supplier receipts, controlled corrections, inspected returns and linked replacement orders. Phase 7 turns these records into trusted revenue, margin, cash, customer, product, delivery, area and inventory decisions without hiding definitions or confidence. Phase 8 adds bounded forecasts, anomaly detection, planning scenarios, explainable caution indicators and a tenant-grounded assistant while keeping authorized people responsible for every business change. Phase 9 closes the release with measurable launch checks, Lebanese administrative accountability, honest integration states, customer growth segments, secure customer tracking, installable mobile behavior and a clearer role-scoped information architecture.
 
-Email, WhatsApp, courier and payment provider APIs are not falsely presented as live in local development. In-app operational notifications are live; the Launch Center shows the exact external configuration and provider-approval gates that remain before AWS pilot deployment.
+Email, WhatsApp, courier and payment provider APIs are not falsely presented as live. In-app operational notifications are live; the Launch Center shows the exact external configuration and provider-approval gates required before each integration is enabled.
 
 ## Final documents package
 
@@ -67,4 +69,4 @@ Email, WhatsApp, courier and payment provider APIs are not falsely presented as 
 
 ## Quality gates
 
-Run `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `pnpm build` before every release. The final local audit passed 59 automated tests, TypeScript checks, lint, a production build, and responsive owner/employee/driver browser workflows. Production configuration fails closed unless Cognito is enabled; development credentials and token fallback are restricted to loopback development/test environments. A public pilot additionally requires the SQL Server, Cognito, AWS, backup/restore, provider and URL gates in the release checklist.
+Run `pnpm typecheck`, `pnpm test`, `pnpm lint`, and `pnpm build` before every release. The final local audit passed 59 automated tests, TypeScript checks, lint, a production build, and responsive owner/employee/driver browser workflows. Development credentials remain loopback-only, the public judge experience uses the separately constrained staging-demo mode, and production configuration fails closed unless Cognito is enabled. A production pilot additionally requires identity, backup/restore, provider and custom-domain gates in the release checklist.

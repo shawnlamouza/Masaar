@@ -75,7 +75,7 @@ export const sessionSchema = z.object({
   displayName: z.string().min(1),
   role: roleSchema,
   permissions: z.array(permissionSchema),
-  authMode: z.enum(['dev', 'cognito']),
+  authMode: z.enum(['dev', 'demo', 'cognito']),
   onboardingRequired: z.boolean().default(false),
 });
 export type Session = z.infer<typeof sessionSchema>;

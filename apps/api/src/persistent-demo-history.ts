@@ -11,9 +11,12 @@ import type {
   ReturnCase,
 } from '@masaar/contracts';
 import type { CommerceRepository } from './commerce-repository.js';
+import { InMemoryCommerceRepository } from './commerce-repository.js';
 import type { FulfillmentRepository } from './fulfillment-repository.js';
+import { InMemoryFulfillmentRepository } from './fulfillment-repository.js';
 import type { InventoryRepository } from './inventory-repository.js';
 import type { OrderRepository } from './order-repository.js';
+import { InMemoryOrderRepository } from './order-repository.js';
 
 const tenantId = 'tenant_cedar_thread';
 const ownerId = '54b88448-0061-7057-89c4-f025787b05e7';
@@ -33,6 +36,67 @@ type Repositories = {
 
 const usd = (amountMinor: number) => ({ amountMinor, currency: 'USD' as const });
 const iso = (time: number) => new Date(time).toISOString();
+
+/** Copies the deterministic demonstration foundation into a brand-new persistent database. */
+export async function seedPersistentDemoFoundation(repositories: Repositories) {
+  const {
+    commerceRepository: commerce,
+    orderRepository: orders,
+    fulfillmentRepository: fulfillment,
+  } = repositories;
+  const [existingProducts, existingOrders, existingResources] = await Promise.all([
+    commerce.listProducts(tenantId),
+    orders.list(tenantId),
+    fulfillment.listResources(tenantId),
+  ]);
+  if (existingProducts.length || existingOrders.length || existingResources.length)
+    return { ok: true, created: false };
+
+  const sourceCommerce = new InMemoryCommerceRepository();
+  const sourceOrders = new InMemoryOrderRepository();
+  const sourceFulfillment = new InMemoryFulfillmentRepository();
+  const [
+    products,
+    suppliers,
+    customers,
+    fxSnapshots,
+    priceReviews,
+    baseOrders,
+    resources,
+    zones,
+    deliveries,
+    payments,
+    custody,
+    reconciliations,
+  ] = await Promise.all([
+    sourceCommerce.listProducts(tenantId),
+    sourceCommerce.listSuppliers(tenantId),
+    sourceCommerce.listCustomers(tenantId),
+    sourceCommerce.listFxSnapshots(tenantId),
+    sourceCommerce.listPriceReviews(tenantId),
+    sourceOrders.list(tenantId),
+    sourceFulfillment.listResources(tenantId),
+    sourceFulfillment.listZones(tenantId),
+    sourceFulfillment.listDeliveries(tenantId),
+    sourceFulfillment.listPaymentEntries(tenantId),
+    sourceFulfillment.listCustodyMovements(tenantId),
+    sourceFulfillment.listReconciliations(tenantId),
+  ]);
+
+  for (const value of suppliers) await commerce.saveSupplier(value);
+  for (const value of products) await commerce.saveProduct(value);
+  for (const value of customers) await commerce.saveCustomer(value);
+  for (const value of fxSnapshots) await commerce.saveFxSnapshot(value);
+  for (const value of priceReviews) await commerce.savePriceReview(value);
+  for (const value of baseOrders) await orders.save(value, `seed-${value.id}`);
+  for (const value of resources) await fulfillment.saveResource(value);
+  for (const value of zones) await fulfillment.saveZone(value);
+  for (const value of deliveries) await fulfillment.saveDelivery(value);
+  for (const value of payments) await fulfillment.savePaymentEntry(value);
+  for (const value of custody) await fulfillment.saveCustodyMovement(value);
+  for (const value of reconciliations) await fulfillment.saveReconciliation(value);
+  return { ok: true, created: true };
+}
 
 /** Creates inspectable, persistent history for the staging demonstration tenant. */
 export async function seedPersistentDemoHistory(repositories: Repositories) {
