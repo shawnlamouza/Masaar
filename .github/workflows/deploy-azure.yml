@@ -1,0 +1,62 @@
+name: Deploy Masaar to Azure
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: masaar-azure-production
+  cancel-in-progress: false
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm typecheck && pnpm test
+      - run: pnpm build:azure
+        env:
+          VITE_JUDGE_DEMOS: 'true'
+      - name: Bundle the production server
+        run: ./node_modules/.bin/esbuild apps/api/src/server.ts --bundle --platform=node --target=node22 --format=cjs --minify --outfile=azure-package/server.cjs
+      - name: Assemble the Azure package
+        shell: bash
+        run: |
+          cp -R apps/api/dist/public azure-package/public
+          printf '{"name":"masaar-azure","private":true,"scripts":{"start":"node server.cjs"}}\n' > azure-package/package.json
+          cd azure-package
+          zip -qr ../masaar-azure.zip .
+      - uses: azure/login@v2
+        with:
+          client-id: 37a20edc-acf3-4c55-b2a3-c7365d00c280
+          tenant-id: c7ba5b1a-41b6-43e9-a120-6ff654ada137
+          subscription-id: 5a52e2e0-a29c-4812-a0c5-fa16d262f3e0
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: masaar
+          package: masaar-azure.zip
+      - name: Verify the live application
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error https://masaar.azurewebsites.net/health | jq -e '.status == "ok"' >/dev/null; then
+              curl --fail --silent --show-error https://masaar.azurewebsites.net/ | grep -q '<div id="root">'
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1

@@ -1,4 +1,4 @@
-const base = (process.env.MASAAR_BASE_URL ?? 'https://d1liad8sdqnvdj.cloudfront.net').replace(/\/$/, '');
+const base = (process.env.MASAAR_BASE_URL ?? 'https://masaar.azurewebsites.net').replace(/\/$/, '');
 const password = process.env.MASAAR_DEMO_PASSWORD ?? 'Masaar-Demo1!';
 
 async function request(path, { token, method = 'GET', body } = {}) {
