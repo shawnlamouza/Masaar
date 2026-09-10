@@ -1,7 +1,9 @@
-name: Deploy legacy AWS staging (manual only)
+name: Deploy Masaar to AWS
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
