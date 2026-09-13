@@ -29,6 +29,7 @@ async function main() {
     ...(repositories
       ? {
           auditRepository: repositories.auditRepository,
+          identityRepository: repositories.identityRepository,
           settingsRepository: repositories.settingsRepository,
           commerceRepository: repositories.commerceRepository,
           orderRepository: repositories.orderRepository,

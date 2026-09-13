@@ -37,6 +37,11 @@ import {
 } from '@masaar/contracts';
 import type { AuditRepository } from './audit.js';
 import type { AppConfig } from './config.js';
+import type {
+  IdentityRepository,
+  PasswordResetRecord,
+  StoredIdentity,
+} from './identity-repository.js';
 import type { BusinessSettingsRepository } from './settings.js';
 import type { CommerceRepository } from './commerce-repository.js';
 import type { OrderRepository } from './order-repository.js';
@@ -52,6 +57,148 @@ import { SQLSERVER_SCHEMA_BATCHES, SQLSERVER_VIEW_BATCHES } from './sqlserver-sc
 
 type Schema<T> = { parse(value: unknown): T };
 type SqlField = { column: string; value: unknown };
+
+class SqlServerIdentityRepository implements IdentityRepository {
+  constructor(private readonly pool: sql.ConnectionPool) {}
+
+  private parse(row: {
+    user_id: string;
+    tenant_id: string;
+    display_name: string;
+    role_name: StoredIdentity['role'];
+    email_normalized: string;
+    password_hash: string;
+    access_token: string;
+    onboarding_required: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }): StoredIdentity {
+    return {
+      userId: row.user_id,
+      tenantId: row.tenant_id,
+      displayName: row.display_name,
+      role: row.role_name,
+      email: row.email_normalized,
+      passwordHash: row.password_hash,
+      accessToken: row.access_token,
+      onboardingRequired: Boolean(row.onboarding_required),
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  async findByEmail(email: string) {
+    const result = await this.pool
+      .request()
+      .input('email', sql.NVarChar(320), email.trim().toLowerCase())
+      .query('SELECT * FROM dbo.auth_identities WHERE email_normalized = @email');
+    return result.recordset[0] ? this.parse(result.recordset[0]) : null;
+  }
+
+  async findByToken(accessToken: string) {
+    const result = await this.pool
+      .request()
+      .input('accessToken', sql.NVarChar(256), accessToken)
+      .query('SELECT * FROM dbo.auth_identities WHERE access_token = @accessToken');
+    return result.recordset[0] ? this.parse(result.recordset[0]) : null;
+  }
+
+  async listForTenant(tenantId: string) {
+    const result = await this.pool
+      .request()
+      .input('tenantId', sql.NVarChar(128), tenantId)
+      .query('SELECT * FROM dbo.auth_identities WHERE tenant_id = @tenantId ORDER BY created_at');
+    return result.recordset.map((row) => this.parse(row));
+  }
+
+  async create(identity: StoredIdentity) {
+    await this.insertOrUpdate(identity, false);
+  }
+
+  async save(identity: StoredIdentity) {
+    await this.insertOrUpdate(identity, true);
+  }
+
+  async getPasswordReset(email: string) {
+    const result = await this.pool
+      .request()
+      .input('email', sql.NVarChar(320), email.trim().toLowerCase())
+      .query<{
+        email_normalized: string;
+        code_hash: string;
+        expires_at: Date;
+        attempt_count: number;
+        created_at: Date;
+      }>('SELECT * FROM dbo.password_reset_codes WHERE email_normalized = @email');
+    const row = result.recordset[0];
+    return row
+      ? {
+          email: row.email_normalized,
+          codeHash: row.code_hash,
+          expiresAt: row.expires_at.toISOString(),
+          attempts: row.attempt_count,
+          createdAt: row.created_at.toISOString(),
+        }
+      : null;
+  }
+
+  async savePasswordReset(reset: PasswordResetRecord) {
+    await this.pool
+      .request()
+      .input('email', sql.NVarChar(320), reset.email.trim().toLowerCase())
+      .input('codeHash', sql.NVarChar(512), reset.codeHash)
+      .input('expiresAt', sql.DateTime2(3), date(reset.expiresAt))
+      .input('attempts', sql.Int, reset.attempts)
+      .input('createdAt', sql.DateTime2(3), date(reset.createdAt))
+      .query(
+        `UPDATE dbo.password_reset_codes
+         SET code_hash=@codeHash, expires_at=@expiresAt, attempt_count=@attempts, created_at=@createdAt
+         WHERE email_normalized=@email;
+         IF @@ROWCOUNT = 0 INSERT INTO dbo.password_reset_codes
+         (email_normalized, code_hash, expires_at, attempt_count, created_at)
+         VALUES (@email, @codeHash, @expiresAt, @attempts, @createdAt);`,
+      );
+  }
+
+  async deletePasswordReset(email: string) {
+    await this.pool
+      .request()
+      .input('email', sql.NVarChar(320), email.trim().toLowerCase())
+      .query('DELETE FROM dbo.password_reset_codes WHERE email_normalized = @email');
+  }
+
+  private async insertOrUpdate(identity: StoredIdentity, allowUpdate: boolean) {
+    const request = this.pool
+      .request()
+      .input('email', sql.NVarChar(320), identity.email.trim().toLowerCase())
+      .input('userId', sql.NVarChar(128), identity.userId)
+      .input('tenantId', sql.NVarChar(128), identity.tenantId)
+      .input('displayName', sql.NVarChar(200), identity.displayName)
+      .input('role', sql.NVarChar(32), identity.role)
+      .input('passwordHash', sql.NVarChar(512), identity.passwordHash)
+      .input('accessToken', sql.NVarChar(256), identity.accessToken)
+      .input('onboardingRequired', sql.Bit, identity.onboardingRequired)
+      .input('createdAt', sql.DateTime2(3), date(identity.createdAt))
+      .input('updatedAt', sql.DateTime2(3), date(identity.updatedAt));
+    if (allowUpdate) {
+      await request.query(
+        `UPDATE dbo.auth_identities
+         SET display_name = @displayName, role_name = @role, password_hash = @passwordHash,
+             access_token = @accessToken, onboarding_required = @onboardingRequired,
+             updated_at = @updatedAt
+         WHERE email_normalized = @email`,
+      );
+      return;
+    }
+    await request.query(
+      `INSERT INTO dbo.auth_identities
+       (email_normalized, user_id, tenant_id, display_name, role_name, password_hash, access_token,
+        onboarding_required, created_at, updated_at)
+       VALUES (@email, @userId, @tenantId, @displayName, @role, @passwordHash, @accessToken,
+        @onboardingRequired, @createdAt, @updatedAt)`,
+    );
+  }
+}
 
 function date(value: string) {
   return new Date(value);
@@ -845,6 +992,7 @@ export async function connectSqlServerRepositories(config: AppConfig) {
   await prepareSqlServer(pool);
   return {
     pool,
+    identityRepository: new SqlServerIdentityRepository(pool),
     auditRepository: new SqlServerAuditRepository(pool),
     settingsRepository: new SqlServerBusinessSettingsRepository(pool),
     commerceRepository: new SqlServerCommerceRepository(pool),

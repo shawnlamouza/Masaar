@@ -5,6 +5,8 @@ describe('SQL Server persistence contract', () => {
   it('creates the complete operational table set with tenant-scoped keys', () => {
     const schema = SQLSERVER_SCHEMA_BATCHES.join('\n');
     for (const table of [
+      'auth_identities',
+      'password_reset_codes',
       'business_settings',
       'audit_events',
       'products',

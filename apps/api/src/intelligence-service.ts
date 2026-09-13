@@ -76,6 +76,14 @@ function operationalFacts(input: IntelligenceInputs): Fact[] {
   }
   return input.orders.map((order) => {
     const delivery = deliveries.get(order.id);
+    const analyticalEvent = [...order.timeline]
+      .reverse()
+      .find(
+        (event) =>
+          !['order.message_copied', 'order.tags_updated', 'order.note_added'].includes(
+            event.action,
+          ),
+      );
     const recognized = ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(order.status);
     const failed = order.status === 'FAILED' || delivery?.status === 'FAILED';
     const lastAttempt = delivery?.attempts.at(-1);
@@ -90,7 +98,8 @@ function operationalFacts(input: IntelligenceInputs): Fact[] {
         : 0;
     return {
       id: order.id,
-      occurredAt: order.updatedAt,
+      // Communication and presentation-only edits must never move an order between BI periods.
+      occurredAt: analyticalEvent?.occurredAt ?? order.createdAt,
       source: order.source,
       productId: order.items[0]?.productId ?? 'unknown',
       productName: order.items[0]?.productName ?? 'Unknown product',

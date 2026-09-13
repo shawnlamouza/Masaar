@@ -7,6 +7,34 @@
  * index remain first-class relational columns.
  */
 export const SQLSERVER_SCHEMA_BATCHES = [
+  `IF OBJECT_ID(N'dbo.auth_identities', N'U') IS NULL
+   BEGIN
+     CREATE TABLE dbo.auth_identities (
+       email_normalized NVARCHAR(320) NOT NULL CONSTRAINT PK_auth_identities PRIMARY KEY,
+       user_id NVARCHAR(128) NOT NULL,
+       tenant_id NVARCHAR(128) NOT NULL,
+       display_name NVARCHAR(200) NOT NULL,
+       role_name NVARCHAR(32) NOT NULL,
+       password_hash NVARCHAR(512) NOT NULL,
+       access_token NVARCHAR(256) NOT NULL,
+       onboarding_required BIT NOT NULL,
+       created_at DATETIME2(3) NOT NULL,
+       updated_at DATETIME2(3) NOT NULL,
+       CONSTRAINT UQ_auth_identities_user UNIQUE (user_id),
+       CONSTRAINT UQ_auth_identities_token UNIQUE (access_token)
+     );
+     CREATE INDEX IX_auth_identities_tenant ON dbo.auth_identities(tenant_id, created_at);
+   END`,
+  `IF OBJECT_ID(N'dbo.password_reset_codes', N'U') IS NULL
+   BEGIN
+     CREATE TABLE dbo.password_reset_codes (
+       email_normalized NVARCHAR(320) NOT NULL CONSTRAINT PK_password_reset_codes PRIMARY KEY,
+       code_hash NVARCHAR(512) NOT NULL,
+       expires_at DATETIME2(3) NOT NULL,
+       attempt_count INT NOT NULL,
+       created_at DATETIME2(3) NOT NULL
+     );
+   END`,
   `IF OBJECT_ID(N'dbo.business_settings', N'U') IS NULL
    BEGIN
      CREATE TABLE dbo.business_settings (

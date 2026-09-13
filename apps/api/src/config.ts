@@ -12,6 +12,8 @@ const configSchema = z
     COGNITO_CLIENT_ID: z.string().optional(),
     AWS_REGION: z.string().optional(),
     SQLSERVER_CONNECTION_STRING: z.string().min(1).optional(),
+    AZURE_EMAIL_CONNECTION_STRING: z.string().min(1).optional(),
+    AZURE_EMAIL_SENDER: z.string().email().optional(),
   })
   .superRefine((value, context) => {
     const deployed = value.MAASAR_ENV === 'staging' || value.MAASAR_ENV === 'production';

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import {
@@ -30,6 +30,8 @@ import {
 import type { AppConfig } from './config.js';
 import type { BusinessSettingsRepository } from './settings.js';
 import type { FulfillmentRepository } from './fulfillment-repository.js';
+import { sendPasswordResetEmail } from './email-service.js';
+import { hashPassword, verifyPassword, type IdentityRepository } from './identity-repository.js';
 
 type DevIdentity = {
   userId: string;
@@ -96,17 +98,36 @@ const DEMO_IDENTITIES: Record<string, DevIdentity> = {
   },
 };
 
-const DYNAMIC_IDENTITIES = new Map<string, { token: string; identity: DevIdentity }>();
-
-function findCredential(email: string, authMode: 'dev' | 'demo' = 'dev') {
+async function findCredential(
+  email: string,
+  authMode: 'dev' | 'demo',
+  identities: IdentityRepository,
+) {
   const normalized = email.trim().toLowerCase();
   const builtIn = Object.entries(authMode === 'demo' ? DEMO_IDENTITIES : DEV_IDENTITIES).find(
     ([, identity]) => identity.email === normalized,
   );
-  return builtIn ? { token: builtIn[0], identity: builtIn[1] } : DYNAMIC_IDENTITIES.get(normalized);
+  if (builtIn) return { token: builtIn[0], identity: builtIn[1], passwordHash: null };
+  const stored = await identities.findByEmail(normalized);
+  if (!stored) return null;
+  return {
+    token: stored.accessToken,
+    identity: {
+      userId: stored.userId,
+      displayName: stored.displayName,
+      role: stored.role,
+      email: stored.email,
+      password: '',
+      tenantId: stored.tenantId,
+      onboardingRequired: stored.onboardingRequired,
+      createdAt: stored.createdAt,
+    },
+    passwordHash: stored.passwordHash,
+  };
 }
 
-export function provisionDevMember(
+export async function provisionDevMember(
+  identities: IdentityRepository,
   input: {
     tenantId: string;
     displayName: string;
@@ -118,8 +139,9 @@ export function provisionDevMember(
   authMode: 'dev' | 'demo' = 'dev',
 ) {
   const email = input.email.trim().toLowerCase();
-  if (findCredential(email, authMode))
+  if (await findCredential(email, authMode, identities))
     throw Object.assign(new Error('A user with this email already exists.'), { statusCode: 409 });
+  const timestamp = new Date().toISOString();
   const identity: DevIdentity = {
     userId: `usr_${randomUUID()}`,
     displayName: input.displayName,
@@ -128,14 +150,29 @@ export function provisionDevMember(
     password: input.password,
     tenantId: input.tenantId,
     onboardingRequired: input.onboardingRequired ?? false,
-    createdAt: new Date().toISOString(),
+    createdAt: timestamp,
   };
   const token = `dev.member.${randomUUID()}`;
-  DYNAMIC_IDENTITIES.set(email, { token, identity });
+  await identities.create({
+    userId: identity.userId,
+    tenantId: identity.tenantId!,
+    displayName: identity.displayName,
+    role: identity.role,
+    email,
+    passwordHash: hashPassword(input.password),
+    accessToken: token,
+    onboardingRequired: identity.onboardingRequired ?? false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
   return { token, identity };
 }
 
-export function listDevTeam(tenantId: string, authMode: 'dev' | 'demo' = 'dev'): TeamMember[] {
+export async function listDevTeam(
+  identities: IdentityRepository,
+  tenantId: string,
+  authMode: 'dev' | 'demo' = 'dev',
+): Promise<TeamMember[]> {
   const createdAt = '2026-08-22T08:00:00.000Z';
   const demo =
     tenantId === 'tenant_cedar_thread'
@@ -145,9 +182,16 @@ export function listDevTeam(tenantId: string, authMode: 'dev' | 'demo' = 'dev'):
           createdAt,
         }))
       : [];
-  const dynamic = [...DYNAMIC_IDENTITIES.values()]
-    .map(({ identity }) => identity)
-    .filter((identity) => identity.tenantId === tenantId);
+  const dynamic = (await identities.listForTenant(tenantId)).map((identity) => ({
+    userId: identity.userId,
+    displayName: identity.displayName,
+    role: identity.role,
+    email: identity.email,
+    password: '',
+    tenantId: identity.tenantId,
+    onboardingRequired: identity.onboardingRequired,
+    createdAt: identity.createdAt,
+  }));
   return [...demo, ...dynamic].map((identity) =>
     teamMemberSchema.parse({
       id: identity.userId,
@@ -171,6 +215,7 @@ function cognitoClient(config: AppConfig) {
 
 export async function provisionMember(
   config: AppConfig,
+  identities: IdentityRepository,
   input: {
     tenantId: string;
     displayName: string;
@@ -182,7 +227,8 @@ export async function provisionMember(
     requireEmailProof?: boolean;
   },
 ) {
-  if (config.AUTH_MODE !== 'cognito') return provisionDevMember(input, config.AUTH_MODE);
+  if (config.AUTH_MODE !== 'cognito')
+    return provisionDevMember(identities, input, config.AUTH_MODE);
   const client = cognitoClient(config);
   const email = input.email.trim().toLowerCase();
   let created;
@@ -238,8 +284,12 @@ export async function provisionMember(
   return { token: '', identity };
 }
 
-export async function listTeam(config: AppConfig, tenantId: string): Promise<TeamMember[]> {
-  if (config.AUTH_MODE !== 'cognito') return listDevTeam(tenantId, config.AUTH_MODE);
+export async function listTeam(
+  config: AppConfig,
+  identities: IdentityRepository,
+  tenantId: string,
+): Promise<TeamMember[]> {
+  if (config.AUTH_MODE !== 'cognito') return listDevTeam(identities, tenantId, config.AUTH_MODE);
   const client = cognitoClient(config);
   const users: UserType[] = [];
   let paginationToken: string | undefined;
@@ -285,12 +335,29 @@ function bearerToken(request: FastifyRequest): string | null {
   return value.slice('Bearer '.length).trim();
 }
 
-function devSession(request: FastifyRequest, authMode: 'dev' | 'demo'): Session | null {
+async function devSession(
+  request: FastifyRequest,
+  authMode: 'dev' | 'demo',
+  identities: IdentityRepository,
+): Promise<Session | null> {
   const token = bearerToken(request);
   if (!token) return null;
+  const builtIn = (authMode === 'demo' ? DEMO_IDENTITIES : DEV_IDENTITIES)[token];
+  const stored = builtIn ? null : await identities.findByToken(token);
   const identity =
-    (authMode === 'demo' ? DEMO_IDENTITIES : DEV_IDENTITIES)[token] ??
-    [...DYNAMIC_IDENTITIES.values()].find((item) => item.token === token)?.identity;
+    builtIn ??
+    (stored
+      ? {
+          userId: stored.userId,
+          displayName: stored.displayName,
+          role: stored.role,
+          email: stored.email,
+          password: '',
+          tenantId: stored.tenantId,
+          onboardingRequired: stored.onboardingRequired,
+          createdAt: stored.createdAt,
+        }
+      : null);
   const tenantId = request.headers['x-tenant-id'];
   if (!identity || (!identity.tenantId && (typeof tenantId !== 'string' || !tenantId))) return null;
   return sessionSchema.parse({
@@ -307,6 +374,7 @@ export async function registerAuth(
   config: AppConfig,
   settings: BusinessSettingsRepository,
   fulfillment: FulfillmentRepository,
+  identities: IdentityRepository,
 ) {
   const verifier =
     config.AUTH_MODE === 'cognito'
@@ -329,7 +397,7 @@ export async function registerAuth(
 
     if (request.url === '/health') return;
     if (config.AUTH_MODE !== 'cognito') {
-      request.session = devSession(request, config.AUTH_MODE);
+      request.session = await devSession(request, config.AUTH_MODE, identities);
       return;
     }
 
@@ -414,8 +482,13 @@ export async function registerAuth(
         session,
       };
     }
-    const match = findCredential(credentials.email, config.AUTH_MODE);
-    if (!match || credentials.password !== match.identity.password) {
+    const match = await findCredential(credentials.email, config.AUTH_MODE, identities);
+    const passwordMatches =
+      match &&
+      (match.passwordHash
+        ? verifyPassword(credentials.password, match.passwordHash)
+        : credentials.password === match.identity.password);
+    if (!match || !passwordMatches) {
       return reply.code(401).send({
         error: 'INVALID_CREDENTIALS',
         message: 'Email or password is incorrect.',
@@ -450,6 +523,24 @@ export async function registerAuth(
       } catch {
         // Deliberately return the same response so this endpoint cannot reveal registered emails.
       }
+    } else {
+      const identity = await identities.findByEmail(email);
+      if (identity) {
+        const code = String(randomInt(100000, 1_000_000));
+        const timestamp = new Date();
+        await identities.savePasswordReset({
+          email,
+          codeHash: hashPassword(code),
+          expiresAt: new Date(timestamp.getTime() + 15 * 60 * 1000).toISOString(),
+          attempts: 0,
+          createdAt: timestamp.toISOString(),
+        });
+        try {
+          await sendPasswordResetEmail(config, email, code);
+        } catch (error) {
+          request.log.error({ error }, 'Could not send Azure password reset email');
+        }
+      }
     }
     return { accepted: true };
   });
@@ -460,10 +551,34 @@ export async function registerAuth(
       return reply.badRequest(
         'Email, verification code and a password of at least 8 characters are required.',
       );
-    if (config.AUTH_MODE !== 'cognito')
-      return reply.badRequest(
-        'Email password recovery is available in the deployed Cognito environment.',
-      );
+    if (config.AUTH_MODE !== 'cognito') {
+      const email = body.email.trim().toLowerCase();
+      const reset = await identities.getPasswordReset(email);
+      const identity = await identities.findByEmail(email);
+      const valid =
+        reset &&
+        identity &&
+        reset.attempts < 5 &&
+        Date.parse(reset.expiresAt) > Date.now() &&
+        verifyPassword(body.code.trim(), reset.codeHash);
+      if (!valid) {
+        if (reset) {
+          if (reset.attempts >= 4) await identities.deletePasswordReset(email);
+          else await identities.savePasswordReset({ ...reset, attempts: reset.attempts + 1 });
+        }
+        return reply.badRequest(
+          'The verification code is invalid or expired. Request a new code and try again.',
+        );
+      }
+      await identities.save({
+        ...identity,
+        passwordHash: hashPassword(body.newPassword),
+        accessToken: `dev.member.${randomUUID()}`,
+        updatedAt: new Date().toISOString(),
+      });
+      await identities.deletePasswordReset(email);
+      return { reset: true };
+    }
     try {
       await cognitoClient(config).send(
         new ConfirmForgotPasswordCommand({
@@ -484,7 +599,7 @@ export async function registerAuth(
   app.post('/api/auth/register-business', async (request, reply) => {
     const input = registerBusinessSchema.parse(request.body);
     const tenantId = `org_${randomUUID()}`;
-    const { token, identity } = await provisionMember(config, {
+    const { token, identity } = await provisionMember(config, identities, {
       tenantId,
       displayName: input.ownerName,
       email: input.email,
@@ -528,13 +643,27 @@ export async function registerAuth(
   });
 }
 
-export async function resetMemberPassword(config: AppConfig, email: string) {
+export async function resetMemberPassword(
+  config: AppConfig,
+  identities: IdentityRepository,
+  email: string,
+) {
   const normalized = email.trim().toLowerCase();
   if (config.AUTH_MODE !== 'cognito') {
-    const match = findCredential(normalized, config.AUTH_MODE);
+    const match = await findCredential(normalized, config.AUTH_MODE, identities);
     if (!match) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
     const temporaryPassword = `Masaar-${randomUUID().slice(0, 8)}`;
-    match.identity.password = temporaryPassword;
+    if (match.passwordHash) {
+      const stored = await identities.findByEmail(normalized);
+      if (!stored) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
+      await identities.save({
+        ...stored,
+        passwordHash: hashPassword(temporaryPassword),
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      match.identity.password = temporaryPassword;
+    }
     return { sent: false, temporaryPassword };
   }
   await cognitoClient(config).send(
@@ -548,15 +677,27 @@ export async function resetMemberPassword(config: AppConfig, email: string) {
 
 export async function updateMember(
   config: AppConfig,
+  identities: IdentityRepository,
   email: string,
   input: { displayName: string; role: Exclude<Role, 'OWNER'>; phone?: string },
 ) {
   const normalized = email.trim().toLowerCase();
   if (config.AUTH_MODE !== 'cognito') {
-    const match = findCredential(normalized, config.AUTH_MODE);
+    const match = await findCredential(normalized, config.AUTH_MODE, identities);
     if (!match) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
-    match.identity.displayName = input.displayName;
-    match.identity.role = input.role;
+    if (match.passwordHash) {
+      const stored = await identities.findByEmail(normalized);
+      if (!stored) throw Object.assign(new Error('Team member not found.'), { statusCode: 404 });
+      await identities.save({
+        ...stored,
+        displayName: input.displayName,
+        role: input.role,
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      match.identity.displayName = input.displayName;
+      match.identity.role = input.role;
+    }
     return;
   }
   await cognitoClient(config).send(

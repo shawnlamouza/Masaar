@@ -121,6 +121,9 @@ export function buildPredictiveSnapshot(input: PredictiveInputs): PredictiveSnap
     .sort((a, b) => b.estimatedCashMinor - a.estimatedCashMinor);
 
   const deliveryRisks = intelligence.areas
+    // Rank delivery evidence only. Pickup, in-store, address-pending and untouched areas are not
+    // failed delivery signals merely because their delivery-success percentage is zero.
+    .filter((area) => area.failedDeliveries > 0 || area.deliverySuccessPercent > 0)
     .map((area) => {
       const failure = 100 - area.deliverySuccessPercent;
       const smallSamplePenalty = area.orders < 5 ? 12 : area.orders < 10 ? 5 : 0;

@@ -21,6 +21,7 @@ import {
   requirePermission,
   requireSession,
 } from './auth.js';
+import { InMemoryIdentityRepository, type IdentityRepository } from './identity-repository.js';
 import { InMemoryAuditRepository, recordAudit, type AuditRepository } from './audit.js';
 import {
   defaultBusinessSettings,
@@ -50,6 +51,7 @@ import { registerExpansionRoutes } from './expansion-routes.js';
 
 export async function buildApp(options?: {
   config?: AppConfig;
+  identityRepository?: IdentityRepository;
   auditRepository?: AuditRepository;
   settingsRepository?: BusinessSettingsRepository;
   commerceRepository?: CommerceRepository;
@@ -60,6 +62,7 @@ export async function buildApp(options?: {
   expansionRepository?: ExpansionRepository;
 }) {
   const config = options?.config ?? loadConfig();
+  const identityRepository = options?.identityRepository ?? new InMemoryIdentityRepository();
   const auditRepository = options?.auditRepository ?? new InMemoryAuditRepository();
   const settingsRepository =
     options?.settingsRepository ?? new InMemoryBusinessSettingsRepository();
@@ -75,7 +78,7 @@ export async function buildApp(options?: {
 
   await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
   await app.register(sensible);
-  await registerAuth(app, config, settingsRepository, fulfillmentRepository);
+  await registerAuth(app, config, settingsRepository, fulfillmentRepository, identityRepository);
 
   app.get('/health', async () => ({
     status: 'ok' as const,
@@ -110,7 +113,7 @@ export async function buildApp(options?: {
         body.temporaryPassword?.trim() || `Masaar-${randomUUID().slice(0, 8)}`;
       if (temporaryPassword.length < 8)
         return reply.badRequest('The starter password must contain at least 8 characters.');
-      const { identity } = await provisionMember(config, {
+      const { identity } = await provisionMember(config, identityRepository, {
         tenantId: request.session!.tenantId,
         displayName,
         email: body.email,
@@ -159,7 +162,7 @@ export async function buildApp(options?: {
   );
 
   app.get('/api/admin/team', { preHandler: requirePermission('users:manage') }, async (request) =>
-    listTeam(config, request.session!.tenantId),
+    listTeam(config, identityRepository, request.session!.tenantId),
   );
 
   app.post(
@@ -169,11 +172,11 @@ export async function buildApp(options?: {
       const email = String((request.body as { email?: unknown })?.email ?? '')
         .trim()
         .toLowerCase();
-      const member = (await listTeam(config, request.session!.tenantId)).find(
+      const member = (await listTeam(config, identityRepository, request.session!.tenantId)).find(
         (item) => item.email.toLowerCase() === email,
       );
       if (!member) return reply.notFound('Team member not found in this business.');
-      const result = await resetMemberPassword(config, email);
+      const result = await resetMemberPassword(config, identityRepository, email);
       await recordAudit(auditRepository, {
         session: request.session!,
         action: 'membership.password_reset_requested',
@@ -192,13 +195,13 @@ export async function buildApp(options?: {
     async (request, reply) => {
       const email = decodeURIComponent((request.params as { email: string }).email).toLowerCase();
       const input = updateTeamMemberSchema.parse(request.body);
-      const member = (await listTeam(config, request.session!.tenantId)).find(
+      const member = (await listTeam(config, identityRepository, request.session!.tenantId)).find(
         (item) => item.email.toLowerCase() === email,
       );
       if (!member) return reply.notFound('Team member not found in this business.');
       if (member.role === 'OWNER')
         return reply.badRequest('The business owner role cannot be changed here.');
-      await updateMember(config, email, {
+      await updateMember(config, identityRepository, email, {
         displayName: input.displayName,
         role: input.role,
         ...(input.phone ? { phone: input.phone } : {}),

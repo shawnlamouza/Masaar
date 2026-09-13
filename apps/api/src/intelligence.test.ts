@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { provisionDevMember } from './auth.js';
+import { InMemoryIdentityRepository } from './identity-repository.js';
 
 const config = loadConfig({
   AUTH_MODE: 'dev',
@@ -33,20 +34,23 @@ describe('Phase 7 explainable intelligence', () => {
     expect(snapshot.trend.length).toBeGreaterThan(5);
     expect(snapshot.channels.length).toBeGreaterThan(1);
     expect(snapshot.insights[0]).toMatchObject({ target: 'Payments', confidence: 'HIGH' });
-    expect(snapshot.cash.recognizedRevenueMinor).toBeGreaterThanOrEqual(snapshot.cash.collectedMinor);
+    expect(snapshot.cash.recognizedRevenueMinor).toBeGreaterThanOrEqual(
+      snapshot.cash.collectedMinor,
+    );
     expect(snapshot.methodology.join(' ')).toContain('Recognized revenue');
     expect(snapshot.methodology.join(' ')).toContain('owner-approved reference of 89,500 LBP/USD');
   });
 
   it('protects owner intelligence from employee access and gives analysts read access', async () => {
-    const app = await buildApp({ config });
+    const identityRepository = new InMemoryIdentityRepository();
+    const app = await buildApp({ config, identityRepository });
     apps.push(app);
     const employee = await app.inject({
       method: 'GET',
       url: '/api/intelligence/snapshot?period=7D',
       headers: { authorization: 'Bearer dev.employee', 'x-tenant-id': 'tenant_cedar_thread' },
     });
-    const analystIdentity = provisionDevMember({
+    const analystIdentity = await provisionDevMember(identityRepository, {
       tenantId: 'tenant_cedar_thread',
       displayName: 'Test Analyst',
       email: `analyst-${Date.now()}@example.test`,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { hashPassword, InMemoryIdentityRepository } from './identity-repository.js';
 
 const config = loadConfig({
   AUTH_MODE: 'dev',
@@ -66,6 +67,78 @@ describe('Masaar API foundation', () => {
       payload: { email: employeeEmail, password: invited.json().temporaryPassword },
     });
     expect(employeeSignIn.json().session).toMatchObject({ tenantId, role: 'EMPLOYEE' });
+    await app.close();
+  });
+
+  it('keeps registered login identities across application restarts', async () => {
+    const identityRepository = new InMemoryIdentityRepository();
+    const email = `persistent-${Date.now()}@example.test`;
+    const first = await buildApp({ config, identityRepository });
+    const registered = await first.inject({
+      method: 'POST',
+      url: '/api/auth/register-business',
+      payload: {
+        businessName: 'Persistent Studio',
+        ownerName: 'Rita Owner',
+        email,
+        password: 'StrongPass123',
+      },
+    });
+    expect(registered.statusCode).toBe(201);
+    await first.close();
+
+    const second = await buildApp({ config, identityRepository });
+    const signedIn = await second.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in',
+      payload: { email, password: 'StrongPass123' },
+    });
+    expect(signedIn.statusCode).toBe(200);
+    expect(signedIn.json().session).toMatchObject({
+      displayName: 'Rita Owner',
+      role: 'OWNER',
+    });
+    expect((await identityRepository.findByEmail(email))?.passwordHash).not.toContain(
+      'StrongPass123',
+    );
+    await second.close();
+  });
+
+  it('resets a persisted account password with a valid one-time email code', async () => {
+    const identityRepository = new InMemoryIdentityRepository();
+    const email = `recovery-${Date.now()}@example.test`;
+    const app = await buildApp({ config, identityRepository });
+    await app.inject({
+      method: 'POST',
+      url: '/api/auth/register-business',
+      payload: {
+        businessName: 'Recovery Studio',
+        ownerName: 'Maya Owner',
+        email,
+        password: 'StrongPass123',
+      },
+    });
+    const timestamp = new Date();
+    await identityRepository.savePasswordReset({
+      email,
+      codeHash: hashPassword('123456'),
+      expiresAt: new Date(timestamp.getTime() + 60_000).toISOString(),
+      attempts: 0,
+      createdAt: timestamp.toISOString(),
+    });
+    const reset = await app.inject({
+      method: 'POST',
+      url: '/api/auth/confirm-password-reset',
+      payload: { email, code: '123456', newPassword: 'ChangedPass123' },
+    });
+    const signedIn = await app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in',
+      payload: { email, password: 'ChangedPass123' },
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(signedIn.statusCode).toBe(200);
+    expect(await identityRepository.getPasswordReset(email)).toBeNull();
     await app.close();
   });
 
