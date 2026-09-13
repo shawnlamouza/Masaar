@@ -48,7 +48,6 @@ jobs:
       - name: Ensure independent Azure password-recovery email
         shell: bash
         run: |
-          az provider register --namespace Microsoft.Communication --wait
           az extension add --name communication --upgrade --only-show-errors
           az communication email create --name masaar-email-sll00 --resource-group masaar-rg --location global --data-location Europe --only-show-errors
           az communication email domain create --domain-name AzureManagedDomain --email-service-name masaar-email-sll00 --resource-group masaar-rg --location global --domain-management AzureManaged --only-show-errors
