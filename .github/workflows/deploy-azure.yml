@@ -50,7 +50,6 @@ jobs:
         run: |
           domain_id="/subscriptions/5a52e2e0-a29c-4812-a0c5-fa16d262f3e0/resourceGroups/masaar-rg/providers/Microsoft.Communication/emailServices/masaar-email-sll00/domains/AzureManagedDomain"
           communication_id="/subscriptions/5a52e2e0-a29c-4812-a0c5-fa16d262f3e0/resourceGroups/masaar-rg/providers/Microsoft.Communication/communicationServices/masaar-communication-sll00"
-          az resource create --resource-group masaar-rg --name masaar-communication-sll00 --resource-type Microsoft.Communication/communicationServices --location global --api-version 2023-03-31 --properties "{\"dataLocation\":\"Europe\",\"linkedDomains\":[\"$domain_id\"]}" --output none
           connection_string="$(az rest --method post --url "https://management.azure.com${communication_id}/listKeys?api-version=2023-03-31" --query primaryConnectionString -o tsv)"
           sender_domain="$(az resource show --ids "$domain_id" --api-version 2023-03-31 --query properties.fromSenderDomain -o tsv)"
           az webapp config appsettings set --name masaar --resource-group masaar-rg --settings AZURE_EMAIL_CONNECTION_STRING="$connection_string" AZURE_EMAIL_SENDER="DoNotReply@$sender_domain" --output none
