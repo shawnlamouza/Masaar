@@ -48,13 +48,11 @@ jobs:
       - name: Ensure independent Azure password-recovery email
         shell: bash
         run: |
-          az extension add --name communication --upgrade --only-show-errors
-          az communication email create --name masaar-email-sll00 --resource-group masaar-rg --location global --data-location Europe --only-show-errors
-          az communication email domain create --domain-name AzureManagedDomain --email-service-name masaar-email-sll00 --resource-group masaar-rg --location global --domain-management AzureManaged --only-show-errors
           domain_id="/subscriptions/5a52e2e0-a29c-4812-a0c5-fa16d262f3e0/resourceGroups/masaar-rg/providers/Microsoft.Communication/emailServices/masaar-email-sll00/domains/AzureManagedDomain"
-          az communication create --name masaar-communication-sll00 --resource-group masaar-rg --location global --data-location Europe --linked-domains "$domain_id" --only-show-errors
-          connection_string="$(az communication list-key --name masaar-communication-sll00 --resource-group masaar-rg --query primaryConnectionString -o tsv)"
-          sender_domain="$(az communication email domain show --domain-name AzureManagedDomain --email-service-name masaar-email-sll00 --resource-group masaar-rg --query fromSenderDomain -o tsv)"
+          communication_id="/subscriptions/5a52e2e0-a29c-4812-a0c5-fa16d262f3e0/resourceGroups/masaar-rg/providers/Microsoft.Communication/communicationServices/masaar-communication-sll00"
+          az resource create --resource-group masaar-rg --name masaar-communication-sll00 --resource-type Microsoft.Communication/communicationServices --location global --api-version 2023-03-31 --properties "{\"dataLocation\":\"Europe\",\"linkedDomains\":[\"$domain_id\"]}" --output none
+          connection_string="$(az rest --method post --url "https://management.azure.com${communication_id}/listKeys?api-version=2023-03-31" --query primaryConnectionString -o tsv)"
+          sender_domain="$(az resource show --ids "$domain_id" --api-version 2023-03-31 --query properties.fromSenderDomain -o tsv)"
           az webapp config appsettings set --name masaar --resource-group masaar-rg --settings AZURE_EMAIL_CONNECTION_STRING="$connection_string" AZURE_EMAIL_SENDER="DoNotReply@$sender_domain" --output none
       - uses: azure/webapps-deploy@v3
         with:
